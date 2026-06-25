@@ -54,7 +54,24 @@ assets/   binary assets (SFX).
 
 ## Starting a new project from Pat_Engine
 
-1. Copy the whole folder.
+Use the scaffold script — it copies the baseline (excluding `.git`, `node_modules`,
+`data/.backups`), renames the package, runs `git init` + an initial commit, and
+`npm install`:
+
+```sh
+./new-game.sh MyGame              # creates ../MyGame next to the engine
+./new-game.sh /path/to/MyGame     # or an explicit path
+# flags: --no-install  --no-git  --force
+```
+```powershell
+.\new-game.ps1 MyGame             # creates ..\MyGame next to the engine
+.\new-game.ps1 C:\Games\MyGame    # or an explicit path
+# flags: -NoInstall  -NoGit  -Force
+```
+
+Then make it yours:
+
+1. (Scaffold already copied the engine baseline + the Critter Garden example as a starting point.)
 2. Replace `data/*.json` with your own assets (or edit them in `/editor`).
 3. Point `data/editor-manifest.json` at your art collections + preview entities.
 4. Replace `game/` with your scenes and entities, wiring engine services in `game/main.js`.
