@@ -1,0 +1,852 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pat_Engine — Editor Suite</title>
+  <style>
+    /* ─── Reset & Base ─────────────────────────────────────────── */
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #060d18;
+      color: #d4a056;
+      font-family: 'Courier New', monospace;
+      overflow: hidden;
+      min-width: 1024px;
+    }
+
+    /* ─── Editor Container ─────────────────────────────────────── */
+    .editor-container {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      width: 100vw;
+    }
+
+    /* ─── Header ───────────────────────────────────────────────── */
+    .editor-header {
+      display: flex;
+      align-items: center;
+      padding: 8px 16px;
+      background: rgba(8,14,24,0.95);
+      border-bottom: 1px solid #5a4a30;
+      flex-shrink: 0;
+    }
+    .editor-title {
+      font-size: 16px;
+      font-weight: bold;
+      color: #d4a056;
+      text-shadow: 0 0 12px rgba(212,160,86,0.3);
+      letter-spacing: 2px;
+      margin-right: auto;
+    }
+    .editor-save-hint {
+      font-size: 11px;
+      color: #7a6a4a;
+    }
+
+    /* ─── Tab Bar ──────────────────────────────────────────────── */
+    .tab-bar {
+      display: flex;
+      background: rgba(8,14,24,0.92);
+      border-bottom: 2px solid #5a4a30;
+      flex-shrink: 0;
+    }
+    .tab-bar .tab {
+      padding: 8px 20px;
+      font-family: 'Courier New', monospace;
+      font-size: 13px;
+      color: #7a6a4a;
+      background: transparent;
+      border: none;
+      border-bottom: 2px solid transparent;
+      cursor: pointer;
+      transition: color 0.15s, border-color 0.15s;
+      position: relative;
+    }
+    .tab-bar .tab:hover {
+      color: #d4a056;
+    }
+    .tab-bar .tab.active {
+      color: #d4a056;
+      border-bottom-color: #d4a056;
+    }
+    .tab-bar .tab .unsaved-dot {
+      display: none;
+      color: #cc4422;
+      margin-left: 4px;
+    }
+    .tab-bar .tab .unsaved-dot.visible {
+      display: inline;
+    }
+
+    /* ─── Tab Panels ───────────────────────────────────────────── */
+    .tab-panels {
+      flex: 1;
+      overflow: hidden;
+      position: relative;
+    }
+    .tab-content {
+      display: none;
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      overflow: auto;
+    }
+    .tab-content.active {
+      display: flex;
+    }
+
+    /* ─── Shared Editor Layout Classes ─────────────────────────── */
+    .editor-body {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+      height: 100%;
+      width: 100%;
+    }
+    .editor-sidebar {
+      width: 220px;
+      min-width: 180px;
+      max-width: 300px;
+      background: rgba(8,14,24,0.92);
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+      flex-shrink: 0;
+    }
+    .editor-main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+      padding: 12px;
+      gap: 12px;
+    }
+    .editor-preview {
+      flex-shrink: 0;
+      position: relative;
+    }
+    .editor-props {
+      flex: 1;
+      overflow-y: auto;
+    }
+
+    /* ─── Widget Styles ────────────────────────────────────────── */
+    .editor-widget {
+      margin-bottom: 6px;
+    }
+    .editor-label {
+      display: block;
+      font-size: 11px;
+      color: #7a6a4a;
+      margin-bottom: 2px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    .editor-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .editor-slider {
+      flex: 1;
+      accent-color: #d4a056;
+      height: 4px;
+    }
+    .editor-num-input {
+      width: 70px;
+      padding: 3px 6px;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      color: #d4a056;
+      background: rgba(20,16,10,0.8);
+      border: 1px solid #5a4a30;
+      border-radius: 3px;
+    }
+    .editor-num-input:focus {
+      border-color: #d4a056;
+      outline: none;
+    }
+    .editor-text-field {
+      width: 100%;
+      padding: 4px 8px;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      color: #d4a056;
+      background: rgba(20,16,10,0.8);
+      border: 1px solid #5a4a30;
+      border-radius: 3px;
+    }
+    .editor-text-field:focus {
+      border-color: #d4a056;
+      outline: none;
+    }
+    .editor-select-input {
+      width: 100%;
+      padding: 4px 8px;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      color: #d4a056;
+      background: rgba(20,16,10,0.8);
+      border: 1px solid #5a4a30;
+      border-radius: 3px;
+    }
+    .editor-select-input:focus {
+      border-color: #d4a056;
+      outline: none;
+    }
+    .editor-color-text {
+      width: 90px;
+    }
+    .editor-color-picker {
+      width: 28px;
+      height: 28px;
+      padding: 0;
+      border: 1px solid #5a4a30;
+      border-radius: 3px;
+      cursor: pointer;
+      background: transparent;
+    }
+    .editor-range-toggle {
+      font-size: 10px;
+      padding: 2px 4px;
+      min-width: 24px;
+    }
+    .editor-range-sep {
+      color: #7a6a4a;
+      font-size: 12px;
+    }
+
+    /* ─── Buttons ──────────────────────────────────────────────── */
+    .editor-btn {
+      padding: 4px 10px;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      border: 1px solid #5a4a30;
+      border-radius: 3px;
+      cursor: pointer;
+      background: transparent;
+      transition: background 0.1s, border-color 0.1s;
+    }
+    .editor-btn-primary {
+      color: #d4a056;
+      border-color: #d4a056;
+    }
+    .editor-btn-primary:hover {
+      background: rgba(212,160,86,0.15);
+    }
+    .editor-btn-danger {
+      color: #cc4422;
+      border-color: #cc4422;
+    }
+    .editor-btn-danger:hover {
+      background: rgba(204,68,34,0.15);
+    }
+    .editor-btn-subtle {
+      color: #7a6a4a;
+      border-color: #5a4a30;
+    }
+    .editor-btn-subtle:hover {
+      color: #d4a056;
+      border-color: #d4a056;
+    }
+    .editor-toggle-btn {
+      min-width: 40px;
+      text-align: center;
+    }
+
+    /* ─── Property Group ───────────────────────────────────────── */
+    .editor-prop-group {
+      border: 1px solid #5a4a30;
+      border-radius: 4px;
+      margin-bottom: 8px;
+      overflow: hidden;
+    }
+    .editor-prop-group-header {
+      padding: 6px 10px;
+      font-size: 12px;
+      font-weight: bold;
+      color: #d4a056;
+      background: rgba(90,74,48,0.2);
+      cursor: pointer;
+      user-select: none;
+      border-bottom: 1px solid #5a4a30;
+    }
+    .editor-prop-group-header::before {
+      content: '▾ ';
+    }
+    .editor-prop-group-header.collapsed::before {
+      content: '▸ ';
+    }
+    .editor-prop-group-body {
+      padding: 8px 10px;
+    }
+
+    /* ─── List Editor ──────────────────────────────────────────── */
+    .editor-list-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 4px;
+    }
+    .editor-list-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 0;
+      border-bottom: 1px solid rgba(90,74,48,0.2);
+    }
+    .editor-list-item:last-child {
+      border-bottom: none;
+    }
+    .editor-list-remove {
+      font-size: 14px;
+      padding: 1px 5px;
+      flex-shrink: 0;
+    }
+
+    /* ─── Tree View ────────────────────────────────────────────── */
+    .editor-tree-node {
+      padding: 2px 6px;
+      font-size: 12px;
+      cursor: pointer;
+      border-radius: 3px;
+    }
+    .editor-tree-node:hover {
+      background: rgba(212,160,86,0.08);
+    }
+    .editor-tree-node.selected {
+      background: rgba(212,160,86,0.15);
+      color: #d4a056;
+    }
+
+    /* ─── Preview Canvas ───────────────────────────────────────── */
+    .editor-preview-canvas {
+      border: 1px solid #5a4a30;
+      border-radius: 4px;
+      display: block;
+    }
+
+    /* ─── Sidebar Items ────────────────────────────────────────── */
+    .editor-sidebar-search {
+      padding: 8px;
+      border-bottom: 1px solid #5a4a30;
+    }
+    .editor-sidebar-search input {
+      width: 100%;
+      padding: 4px 8px;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      color: #d4a056;
+      background: rgba(20,16,10,0.8);
+      border: 1px solid #5a4a30;
+      border-radius: 3px;
+    }
+    .editor-sidebar-search input::placeholder {
+      color: #5a4a30;
+    }
+    .editor-sidebar-search input:focus {
+      border-color: #d4a056;
+      outline: none;
+    }
+    .editor-sidebar-actions {
+      padding: 6px 8px;
+      display: flex;
+      gap: 4px;
+      border-bottom: 1px solid #5a4a30;
+    }
+    .editor-sidebar-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 4px 0;
+    }
+    .editor-sidebar-category {
+      margin-bottom: 2px;
+    }
+    .editor-sidebar-category-header {
+      padding: 4px 10px;
+      font-size: 12px;
+      color: #7a6a4a;
+      cursor: pointer;
+      user-select: none;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .editor-sidebar-category-header:hover {
+      color: #d4a056;
+    }
+    .editor-sidebar-category-header .count {
+      font-size: 10px;
+      color: #5a4a30;
+    }
+    .editor-sidebar-item {
+      padding: 3px 10px 3px 22px;
+      font-size: 12px;
+      color: #7a6a4a;
+      cursor: pointer;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .editor-sidebar-item:hover {
+      color: #d4a056;
+      background: rgba(212,160,86,0.06);
+    }
+    .editor-sidebar-item.selected {
+      color: #d4a056;
+      background: rgba(212,160,86,0.12);
+    }
+    .editor-sidebar-footer {
+      padding: 8px;
+      border-top: 1px solid #5a4a30;
+    }
+
+    /* ─── Save Status ──────────────────────────────────────────── */
+    .editor-save-status {
+      font-size: 12px;
+      margin-right: 8px;
+    }
+
+    /* ─── Three-Column Layout ────────────────────────────────────── */
+    .editor-three-col {
+      display: flex;
+      flex: 1;
+      min-height: 0;
+      overflow: hidden;
+    }
+    .editor-right-panel {
+      width: 320px;
+      min-width: 260px;
+      overflow-y: auto;
+      padding: 8px 12px;
+      flex-shrink: 0;
+    }
+    .editor-center {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    /* ─── State Bar ──────────────────────────────────────────────── */
+    .art-state-bar {
+      display: flex;
+      gap: 3px;
+      padding: 6px 8px;
+      border-bottom: 1px solid #2a2a3a;
+      flex-shrink: 0;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .state-tab {
+      padding: 3px 8px;
+      font-family: 'Courier New', monospace;
+      font-size: 11px;
+      border: 1px solid #5a4a30;
+      border-radius: 3px;
+      background: transparent;
+      color: #7a6a4a;
+      cursor: pointer;
+      transition: color 0.1s, border-color 0.1s, background 0.1s;
+    }
+    .state-tab:hover { color: #d4a056; border-color: #d4a056; }
+    .state-tab.active { color: #33ddcc; border-color: #33ddcc; background: rgba(51,221,204,0.08); }
+    .state-tab.base { color: #7a6a4a; }
+    .state-tab.base.active { color: #d4a056; border-color: #d4a056; background: rgba(212,160,86,0.1); }
+    .state-tab .badge { font-size: 9px; color: #5a4a30; margin-left: 2px; }
+    .state-tab-add {
+      padding: 3px 8px;
+      font-family: 'Courier New', monospace;
+      font-size: 11px;
+      border: 1px dashed #5a4a30;
+      border-radius: 3px;
+      background: transparent;
+      color: #5a4a30;
+      cursor: pointer;
+    }
+    .state-tab-add:hover { color: #7a6a4a; border-color: #7a6a4a; }
+
+    /* ─── Shape Tree ─────────────────────────────────────────────── */
+    .shape-tree-search {
+      padding: 6px 8px;
+      border-bottom: 1px solid #2a2a3a;
+    }
+    .shape-tree-search input {
+      width: 100%;
+      padding: 3px 6px;
+      font-family: 'Courier New', monospace;
+      font-size: 11px;
+      color: #d4a056;
+      background: rgba(20,16,10,0.8);
+      border: 1px solid #5a4a30;
+      border-radius: 3px;
+    }
+    .shape-tree-search input::placeholder { color: #5a4a30; }
+    .shape-tree-search input:focus { border-color: #d4a056; outline: none; }
+    .shape-tree-toolbar {
+      display: flex;
+      gap: 2px;
+      padding: 4px 6px;
+      border-bottom: 1px solid #2a2a3a;
+      flex-wrap: wrap;
+    }
+    .shape-tree-toolbar .editor-btn { padding: 2px 6px; font-size: 10px; }
+    .shape-tree-scroll {
+      flex: 1;
+      overflow-y: auto;
+      padding: 2px 0;
+    }
+    .shape-tree-node {
+      display: flex;
+      align-items: center;
+      padding: 2px 4px;
+      cursor: pointer;
+      border-radius: 3px;
+      font-size: 11px;
+      color: #8a7a5a;
+      gap: 2px;
+    }
+    .shape-tree-node:hover { background: rgba(51,221,204,0.06); color: #b0a080; }
+    .shape-tree-node.selected { background: rgba(212,160,86,0.15); color: #d4a056; }
+    .shape-tree-node .tree-expand {
+      width: 14px;
+      text-align: center;
+      font-size: 10px;
+      color: #5a4a30;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .shape-tree-node .tree-expand:hover { color: #d4a056; }
+    .shape-tree-node .tree-icon {
+      width: 18px;
+      text-align: center;
+      font-size: 10px;
+      opacity: 0.6;
+      flex-shrink: 0;
+    }
+    .shape-tree-node .tree-name {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .shape-tree-node .state-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      display: inline-block;
+      margin-left: 2px;
+      flex-shrink: 0;
+    }
+    .state-dot.override { background: #33ddcc; }
+    .state-dot.active-state { background: #d4a056; }
+    .shape-tree-node.drag-source { opacity: 0.4; }
+
+    /* ─── Coord Editor ───────────────────────────────────────────── */
+    .coord-editor { margin-bottom: 6px; }
+    .coord-editor-label {
+      font-size: 11px;
+      color: #7a6a4a;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 2px;
+    }
+    .coord-component {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      margin: 2px 0;
+    }
+    .coord-component .comp-key {
+      font-size: 10px;
+      color: #33ddcc;
+      width: 40px;
+      text-align: right;
+      font-weight: bold;
+      flex-shrink: 0;
+    }
+    .coord-component .comp-del {
+      background: none;
+      border: none;
+      color: #cc4444;
+      cursor: pointer;
+      font-size: 10px;
+      padding: 0 2px;
+      flex-shrink: 0;
+    }
+    .coord-component .comp-del:hover { color: #ff6666; }
+
+    /* ─── Override Indicators ────────────────────────────────────── */
+    .prop-override { border-left: 2px solid #33ddcc; padding-left: 6px; margin: 4px 0; }
+    .prop-base-dimmed { opacity: 0.6; }
+    .override-label { font-size: 10px; color: #33ddcc; font-weight: bold; }
+    .override-remove {
+      background: none;
+      border: none;
+      color: #cc4444;
+      cursor: pointer;
+      font-size: 11px;
+      padding: 0 3px;
+    }
+    .override-remove:hover { color: #ff6666; }
+    .add-override-btn {
+      font-size: 10px;
+      color: #5a4a30;
+      cursor: pointer;
+      background: none;
+      border: none;
+      font-family: 'Courier New', monospace;
+      opacity: 0;
+      transition: opacity 0.15s;
+    }
+    .editor-widget:hover .add-override-btn { opacity: 1; }
+    .add-override-btn:hover { color: #33ddcc; }
+
+    /* ─── Properties Header ──────────────────────────────────────── */
+    .props-header {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 0;
+      border-bottom: 1px solid #2a2a3a;
+      margin-bottom: 8px;
+    }
+    .props-header .shape-type-icon {
+      font-size: 12px;
+      color: #7a6a4a;
+      width: 20px;
+      text-align: center;
+    }
+    .props-header .shape-name {
+      font-size: 13px;
+      font-weight: bold;
+      color: #d4a056;
+      flex: 1;
+    }
+    .props-header .shape-type-label {
+      font-size: 10px;
+      color: #5a4a30;
+    }
+
+    /* ─── Tag List ───────────────────────────────────────────────── */
+    .tag-list { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+    .tag-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      padding: 2px 6px;
+      font-family: 'Courier New', monospace;
+      font-size: 10px;
+      color: #33ddcc;
+      border: 1px solid #33ddcc;
+      border-radius: 3px;
+      background: rgba(51,221,204,0.06);
+    }
+    .tag-chip .tag-remove {
+      cursor: pointer;
+      color: #cc4444;
+      font-size: 11px;
+    }
+    .tag-chip .tag-remove:hover { color: #ff6666; }
+    .tag-add-btn {
+      padding: 2px 6px;
+      font-family: 'Courier New', monospace;
+      font-size: 10px;
+      color: #5a4a30;
+      border: 1px dashed #5a4a30;
+      border-radius: 3px;
+      background: transparent;
+      cursor: pointer;
+    }
+    .tag-add-btn:hover { color: #7a6a4a; border-color: #7a6a4a; }
+
+    /* ─── Context Menu ───────────────────────────────────────────── */
+    .editor-context-menu {
+      position: fixed;
+      background: rgba(10,10,20,0.95);
+      border: 1px solid #5a4a30;
+      border-radius: 4px;
+      padding: 4px 0;
+      z-index: 1000;
+      min-width: 140px;
+    }
+    .editor-context-menu-item {
+      padding: 4px 12px;
+      font-family: 'Courier New', monospace;
+      font-size: 11px;
+      color: #d4a056;
+      cursor: pointer;
+    }
+    .editor-context-menu-item:hover { background: rgba(212,160,86,0.15); }
+    .editor-context-menu-item.danger { color: #cc4422; }
+    .editor-context-menu-item.danger:hover { background: rgba(204,68,34,0.15); }
+    .editor-context-menu-sep {
+      height: 1px;
+      background: #5a4a30;
+      margin: 3px 0;
+    }
+
+    /* ─── Resizer Handles ──────────────────────────────────────── */
+    .editor-resizer {
+      flex-shrink: 0;
+      background: transparent;
+      position: relative;
+      z-index: 10;
+    }
+    .editor-resizer::after {
+      content: '';
+      position: absolute;
+      background: #5a4a30;
+      transition: background 0.15s;
+    }
+    .editor-resizer:hover::after,
+    .editor-resizer.active::after {
+      background: #d4a056;
+    }
+    .editor-resizer-horizontal {
+      width: 5px;
+      cursor: col-resize;
+    }
+    .editor-resizer-horizontal::after {
+      top: 0;
+      bottom: 0;
+      left: 2px;
+      width: 1px;
+    }
+    .editor-resizer-vertical {
+      height: 5px;
+      cursor: row-resize;
+    }
+    .editor-resizer-vertical::after {
+      left: 0;
+      right: 0;
+      top: 2px;
+      height: 1px;
+    }
+
+    /* ─── Scrollbar Styling ────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: rgba(8,14,24,0.5); }
+    ::-webkit-scrollbar-thumb { background: #5a4a30; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #7a6a4a; }
+  </style>
+</head>
+<body>
+  <div class="editor-container">
+    <div class="editor-header">
+      <span class="editor-title">PAT_ENGINE EDITOR SUITE</span>
+      <span class="editor-save-hint">Ctrl+S: Save Current</span>
+    </div>
+    <div class="tab-bar">
+      <button class="tab active" data-tab="art">Art<span class="unsaved-dot">&#8226;</span></button>
+      <button class="tab" data-tab="vfx">VFX<span class="unsaved-dot">&#8226;</span></button>
+      <button class="tab" data-tab="sequences">Sequences<span class="unsaved-dot">&#8226;</span></button>
+      <button class="tab" data-tab="soundboard">Soundboard<span class="unsaved-dot">&#8226;</span></button>
+    </div>
+    <div class="tab-panels">
+      <div class="tab-content active" id="tab-art"></div>
+      <div class="tab-content" id="tab-vfx"></div>
+      <div class="tab-content" id="tab-sequences"></div>
+      <div class="tab-content" id="tab-soundboard"></div>
+    </div>
+  </div>
+
+  <script type="module">
+    const TAB_IDS = ['art', 'vfx', 'sequences', 'soundboard'];
+
+    const editors = {
+      art:        { module: null, mounted: false },
+      vfx:        { module: null, mounted: false },
+      sequences:  { module: null, mounted: false },
+      soundboard: { module: null, mounted: false },
+    };
+
+    let activeTab = null;
+
+    // ── Tab switching ────────────────────────────────────────────
+    async function activateTab(tabId) {
+      if (activeTab === tabId) return;
+
+      // Update tab bar
+      document.querySelectorAll('.tab-bar .tab').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.tab === tabId);
+      });
+
+      // Update tab panels — explicitly manage display to prevent
+      // editor inline styles from overriding CSS display:none
+      document.querySelectorAll('.tab-content').forEach(panel => {
+        const isActive = panel.id === `tab-${tabId}`;
+        panel.classList.toggle('active', isActive);
+        if (!isActive) {
+          panel.style.display = 'none';
+        } else {
+          panel.style.removeProperty('display');
+        }
+      });
+
+      // Lazy-load and mount on first activation
+      if (!editors[tabId].mounted) {
+        try {
+          const mod = await import(`/editors/${tabId}Editor.js`);
+          await mod.mount(document.getElementById(`tab-${tabId}`));
+          editors[tabId] = { module: mod, mounted: true };
+        } catch (err) {
+          console.error(`Failed to load ${tabId} editor:`, err);
+          const panel = document.getElementById(`tab-${tabId}`);
+          panel.innerHTML = `<div style="padding:40px;color:#cc4422">Failed to load ${tabId} editor: ${err.message}</div>`;
+        }
+      }
+
+      activeTab = tabId;
+      location.hash = tabId;
+    }
+
+    // ── Tab bar click handlers ───────────────────────────────────
+    document.querySelectorAll('.tab-bar .tab').forEach(btn => {
+      btn.addEventListener('click', () => activateTab(btn.dataset.tab));
+    });
+
+    // ── Keyboard shortcuts ───────────────────────────────────────
+    document.addEventListener('keydown', (e) => {
+      if (e.ctrlKey || e.metaKey) {
+        if (e.key === 's' || e.key === 'S') {
+          e.preventDefault();
+          // Trigger save on active editor
+          if (activeTab && editors[activeTab].module && editors[activeTab].module.save) {
+            editors[activeTab].module.save();
+          }
+        }
+        const tabIndex = parseInt(e.key) - 1;
+        if (tabIndex >= 0 && tabIndex < TAB_IDS.length) {
+          e.preventDefault();
+          activateTab(TAB_IDS[tabIndex]);
+        }
+      }
+    });
+
+    // ── Unsaved changes guard ────────────────────────────────────
+    window.addEventListener('beforeunload', (e) => {
+      const hasUnsaved = TAB_IDS.some(id =>
+        editors[id].module && editors[id].module.isDirty && editors[id].module.isDirty()
+      );
+      if (hasUnsaved) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    });
+
+    // ── Unsaved dot indicator API ────────────────────────────────
+    // Editors can call window.editorSetUnsaved(tabId, dirty)
+    window.editorSetUnsaved = (tabId, dirty) => {
+      const btn = document.querySelector(`.tab[data-tab="${tabId}"] .unsaved-dot`);
+      if (btn) btn.classList.toggle('visible', dirty);
+    };
+
+    // ── URL hash routing ─────────────────────────────────────────
+    const initialTab = location.hash.slice(1);
+    activateTab(TAB_IDS.includes(initialTab) ? initialTab : 'art');
+  </script>
+</body>
+</html>

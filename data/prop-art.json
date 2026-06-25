@@ -1,0 +1,76 @@
+{
+  "props": {
+    "flower": {
+      "name": "Flower",
+      "states": ["idle"],
+      "setup": { "lineWidth": 1.5 },
+      "shapes": [
+        { "name": "Stem", "type": "lines", "stroke": true,
+          "setup": { "strokeColor": "#5f8a4a", "lineWidth": 2 },
+          "segments": [ [[0, 1.0], [0, 0]] ] },
+        { "name": "Petals", "type": "spinner", "cx": 0, "cy": 0, "rate": 0.0006, "copies": 6,
+          "setup": { "fillColor": "#e88ab0", "alpha": 0.9, "shadowBlur": 4 },
+          "shapes": [
+            { "name": "petal", "type": "circle", "fill": true, "cx": 0, "cy": -0.5, "radiusAbs": 6 }
+          ]
+        },
+        { "name": "Center", "type": "circle", "fill": true, "cx": 0, "cy": 0, "radiusAbs": 5,
+          "setup": { "fillColor": "#f2d14a", "shadowBlur": 6 } }
+      ]
+    },
+
+    "rock": {
+      "name": "Rock",
+      "states": ["idle"],
+      "setup": { "lineWidth": 1.5 },
+      "shapes": [
+        { "name": "Body", "type": "path", "fill": true, "stroke": true, "closed": true,
+          "setup": { "fillColor": "#4a4f57", "strokeColor": "#2c3036", "shadowBlur": 3 },
+          "points": [[-0.9, 0.5], [-0.5, -0.4], [0.2, -0.6], [0.85, -0.2], [0.8, 0.5]] },
+        { "name": "Vein", "type": "lines", "stroke": true,
+          "setup": { "strokeColor": "#6a7079", "alpha": 0.6 },
+          "segments": [ [[-0.4, -0.1], [0.1, 0.2]], [[0.1, 0.2], [0.5, 0.0]] ] }
+      ]
+    },
+
+    "sign": {
+      "name": "Sign",
+      "states": ["idle"],
+      "setup": { "lineWidth": 1.5 },
+      "shapes": [
+        { "name": "Post", "type": "lines", "stroke": true,
+          "setup": { "strokeColor": "#7a5a3a", "lineWidth": 3 },
+          "segments": [ [[0, 1.0], [0, -0.2]] ] },
+        { "name": "Board", "type": "rect", "fill": true, "stroke": true,
+          "x": -0.6, "y": -0.6, "w": 1.2, "h": 0.65,
+          "setup": { "fillColor": "#b98a4a", "strokeColor": "#6a4a28", "shadowBlur": 3 } }
+      ]
+    },
+
+    "logo": {
+      "name": "Garden Emblem",
+      "states": ["idle"],
+      "setup": { "lineWidth": 2 },
+      "shapes": [
+        { "name": "Pulse ring", "type": "group",
+          "animators": [
+            { "type": "oscillator", "var": "pulse", "rate": 0.0016, "amplitude": 0.5, "base": 0.5 }
+          ],
+          "children": [
+            { "name": "ring", "type": "circle", "stroke": true, "cx": 0, "cy": 0,
+              "radiusAbs": { "base": 30, "pulse": 6 },
+              "setup": { "strokeColor": "#7cc6a0", "alpha": { "base": 0.5, "pulse": 0.3 }, "shadowBlur": { "base": 8, "pulse": 10 } } }
+          ]
+        },
+        { "name": "Arc upper", "type": "arc", "stroke": true, "cx": 0, "cy": 0, "radius": 0.6,
+          "startAngle": "-PI*0.85", "endAngle": "-PI*0.15",
+          "setup": { "strokeColor": "#cad27a", "lineWidth": 3 } },
+        { "name": "Sprout", "type": "path", "stroke": true, "closed": false,
+          "setup": { "strokeColor": "#7cc6a0", "lineWidth": 3 },
+          "points": [[0, 0.5], [0, -0.2], [-0.35, -0.45]] },
+        { "name": "Bud", "type": "circle", "fill": true, "cx": -0.35, "cy": -0.45, "radiusAbs": 6,
+          "setup": { "fillColor": "#e88ab0", "shadowBlur": 6 } }
+      ]
+    }
+  }
+}

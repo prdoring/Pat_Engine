@@ -1,0 +1,100 @@
+{
+  "critters": {
+    "blob": {
+      "name": "Blob",
+      "states": ["idle", "happy", "scared"],
+      "setup": { "lineWidth": 2 },
+      "shapes": [
+        { "name": "Glow", "type": "group",
+          "animators": [
+            { "type": "oscillator", "var": "breathe", "rate": 0.002, "amplitude": 0.5, "base": 0.5 }
+          ],
+          "children": [
+            { "name": "glow", "type": "circle", "fill": true, "cx": 0, "cy": 0,
+              "radiusAbs": { "base": 18, "breathe": 6 },
+              "setup": { "alpha": { "base": 0.12, "breathe": 0.1 }, "shadowBlur": { "base": 8, "breathe": 8 } },
+              "states": { "happy": { "setup": { "alpha": { "base": 0.28, "breathe": 0.16 } } } }
+            }
+          ]
+        },
+        { "name": "Body", "type": "circle", "fill": true, "stroke": true, "cx": 0, "cy": 0, "radius": 0.72,
+          "setup": { "shadowBlur": 4 },
+          "states": {
+            "happy": { "setup": { "shadowBlur": 12 } },
+            "scared": { "setup": { "shadowBlur": 1 } }
+          }
+        },
+        { "name": "Eye L", "type": "circle", "fill": true, "cx": -0.26, "cy": -0.12, "radiusAbs": 3,
+          "setup": { "fillColor": "#101820" } },
+        { "name": "Eye R", "type": "circle", "fill": true, "cx": 0.26, "cy": -0.12, "radiusAbs": 3,
+          "setup": { "fillColor": "#101820" } },
+        { "name": "Brow", "type": "lines", "stroke": true, "visibleStates": ["scared"],
+          "setup": { "lineWidth": 2, "strokeColor": "#101820" },
+          "segments": [ [[-0.38, -0.34], [-0.14, -0.26]], [[0.38, -0.34], [0.14, -0.26]] ] },
+        { "name": "Mouth", "type": "path", "stroke": true, "closed": false,
+          "setup": { "lineWidth": 2, "strokeColor": "#101820" },
+          "points": [[-0.2, 0.24], [0, 0.32], [0.2, 0.24]],
+          "states": { "scared": { "points": [[-0.2, 0.32], [0, 0.24], [0.2, 0.32]] } } },
+        { "name": "Sparkle", "type": "spinner", "visibleStates": ["happy"],
+          "cx": 0, "cy": 0, "rate": 0.02, "copies": 5,
+          "setup": { "strokeColor": "#fff7d8", "alpha": 0.9, "lineWidth": 1.5, "shadowBlur": 6 },
+          "shapes": [
+            { "name": "ray", "type": "lines", "stroke": true, "segments": [ [[0, -0.95], [0, -1.15]] ] }
+          ]
+        }
+      ]
+    },
+
+    "sprout": {
+      "name": "Sprout",
+      "states": ["idle", "happy", "scared"],
+      "setup": { "lineWidth": 2 },
+      "shapes": [
+        { "name": "Glow", "type": "group",
+          "animators": [
+            { "type": "oscillator", "var": "breathe", "rate": 0.0025, "amplitude": 0.5, "base": 0.5 }
+          ],
+          "children": [
+            { "name": "glow", "type": "circle", "fill": true, "cx": 0, "cy": 0.1,
+              "radiusAbs": { "base": 15, "breathe": 5 },
+              "setup": { "alpha": { "base": 0.12, "breathe": 0.1 }, "shadowBlur": { "base": 6, "breathe": 8 } },
+              "states": { "happy": { "setup": { "alpha": { "base": 0.26, "breathe": 0.16 } } } }
+            }
+          ]
+        },
+        { "name": "Body", "type": "path", "fill": true, "stroke": true, "closed": true,
+          "setup": { "shadowBlur": 4 },
+          "points": [[-0.55, 0.55], [0.55, 0.55], [0, -0.45]],
+          "states": {
+            "happy": { "setup": { "shadowBlur": 12 } },
+            "scared": { "setup": { "shadowBlur": 1 } }
+          }
+        },
+        { "name": "Leaf", "type": "group",
+          "animators": [
+            { "type": "oscillator", "var": "sway", "rate": 0.003, "amplitude": 0.5, "base": 0.5 }
+          ],
+          "children": [
+            { "name": "stem", "type": "lines", "stroke": true,
+              "setup": { "lineWidth": 2, "strokeColor": "#6a8f5a" },
+              "segments": [ [[0, -0.45], [0, -0.75]] ] },
+            { "name": "leafblade", "type": "circle", "fill": true,
+              "cx": { "base": 0, "sway": 0.12 }, "cy": -0.82, "radiusAbs": { "base": 5, "sway": 1 },
+              "setup": { "fillColor": "#8fc070", "alpha": 0.9 } }
+          ]
+        },
+        { "name": "Eye L", "type": "circle", "fill": true, "cx": -0.2, "cy": 0.18, "radiusAbs": 2.5,
+          "setup": { "fillColor": "#101820" } },
+        { "name": "Eye R", "type": "circle", "fill": true, "cx": 0.2, "cy": 0.18, "radiusAbs": 2.5,
+          "setup": { "fillColor": "#101820" } },
+        { "name": "Sparkle", "type": "spinner", "visibleStates": ["happy"],
+          "cx": 0, "cy": 0, "rate": -0.018, "copies": 4,
+          "setup": { "strokeColor": "#fff7d8", "alpha": 0.9, "lineWidth": 1.5, "shadowBlur": 6 },
+          "shapes": [
+            { "name": "ray", "type": "lines", "stroke": true, "segments": [ [[0, -0.9], [0, -1.1]] ] }
+          ]
+        }
+      ]
+    }
+  }
+}

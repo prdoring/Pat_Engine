@@ -1,0 +1,959 @@
+// Shape property panel and per-type editors for the art editor.
+// Builds the right-side property panel when a shape is selected.
+
+import { ctx, getShapeAtPath, pathToKey, SHAPE_ICONS, createStateProxy } from './artEditorCtx.js';
+import { collectAvailableVars, wrapShapeInAnimation, removeParentAnimation } from './artEditorTree.js';
+import { rotateShapeAroundCenter } from './artEditorPreview.js';
+import {
+  NumberSlider, ColorInput, Select, TextInput, Toggle, Button,
+  PropertyGroup, CoordEditor, TagListEditor,
+} from './editorShared.js';
+
+// ─── Main Shape Properties ───────────────────────────────────────────────────
+
+/** Build the property panel for the currently selected shape. */
+export function buildShapeProps() {
+  ctx.propsEl.innerHTML = '';
+  if (!ctx.currentArt) return;
+  const art = ctx.currentArt;
+
+  if (!ctx.selectedShapePath) { ctx.clearProps(); return; }
+
+  const rawShape = getShapeAtPath(art.shapes, ctx.selectedShapePath);
+  if (!rawShape) { ctx.clearProps(); return; }
+
+  // Proxy routes property reads/writes through state overrides when editing non-BASE
+  const shape = createStateProxy(rawShape, ctx.currentEditState);
+
+  const onDirty = () => {
+    ctx.markDirty();
+    // Refresh overrides summary without full rebuild (avoids losing focus)
+    const existingOverrides = ctx.propsEl.querySelector('.overrides-section');
+    if (existingOverrides) {
+      existingOverrides.innerHTML = '';
+      buildOverridesContent(existingOverrides, rawShape, onDirty);
+    }
+  };
+  const set = (key, val) => { shape[key] = val; onDirty(); };
+  const availableVars = collectAvailableVars(art, ctx.selectedShapePath);
+  const stateNames = ctx.discoveredStates.filter(s => s !== 'BASE');
+
+  // Header: icon + name + type + state indicator
+  const header = document.createElement('div');
+  header.className = 'props-header';
+  const iconSpan = document.createElement('span');
+  iconSpan.className = 'tree-icon';
+  iconSpan.textContent = SHAPE_ICONS[rawShape.type] || '?';
+  header.appendChild(iconSpan);
+  const nameSpan = document.createElement('span');
+  nameSpan.style.cssText = 'font-weight:bold;color:#d4a056;flex:1;';
+  nameSpan.textContent = rawShape.name || rawShape.type;
+  header.appendChild(nameSpan);
+  const typeSpan = document.createElement('span');
+  typeSpan.style.cssText = 'color:#5a4a30;font-size:11px;';
+  typeSpan.textContent = rawShape.type;
+  header.appendChild(typeSpan);
+  if (ctx.currentEditState !== 'BASE') {
+    const badge = document.createElement('span');
+    badge.style.cssText = 'color:#33ddcc;font-size:10px;padding:1px 6px;border:1px solid #33ddcc44;border-radius:3px;margin-left:4px;';
+    badge.textContent = ctx.currentEditState;
+    header.appendChild(badge);
+  }
+  ctx.propsEl.appendChild(header);
+
+  // Name field (always edits base shape — name is structural)
+  const nameW = TextInput('Name', rawShape.name || '', v => { rawShape.name = v; onDirty(); });
+  ctx.propsEl.appendChild(nameW.el);
+
+  // Visible States — common to all shapes (controls visibility per state, empty/absent = always visible)
+  if (stateNames.length > 0) {
+    ctx.propsEl.appendChild(TagListEditor('Visible States', rawShape.visibleStates || [], stateNames, v => {
+      if (v.length > 0) { rawShape.visibleStates = v; }
+      else { delete rawShape.visibleStates; }
+      onDirty();
+    }).el);
+  }
+
+  // Animations section (uses rawShape for tree operations)
+  buildAnimationsSection(ctx.propsEl, art, ctx.selectedShapePath, rawShape, stateNames, onDirty);
+
+  // Type-specific properties (use proxy — auto-creates overrides in non-BASE state)
+  switch (rawShape.type) {
+    case 'group': buildGroupEditor(ctx.propsEl, shape, availableVars, onDirty); break;
+    case 'circle': buildCircleEditor(ctx.propsEl, shape, availableVars, onDirty); break;
+    case 'path': buildPathEditor(ctx.propsEl, shape, availableVars, onDirty); break;
+    case 'bezierPath': case 'quadPath': buildBezierPathEditor(ctx.propsEl, shape, availableVars, onDirty); break;
+    case 'lines': buildLinesEditor(ctx.propsEl, shape, availableVars, onDirty); break;
+    case 'arc': buildArcEditor(ctx.propsEl, shape, availableVars, onDirty); break;
+    case 'rect': buildRectEditor(ctx.propsEl, shape, availableVars, onDirty); break;
+    case 'roundedRect': buildRoundedRectEditor(ctx.propsEl, shape, availableVars, onDirty); break;
+    case 'boltCluster': buildBoltClusterEditor(ctx.propsEl, shape, availableVars, onDirty); break;
+    case 'spinner': buildSpinnerEditor(ctx.propsEl, shape, availableVars, stateNames, onDirty); break;
+    case 'oscillator': buildOscillatorEditor(ctx.propsEl, shape, availableVars, stateNames, onDirty); break;
+    case 'conditional': buildConditionalEditor(ctx.propsEl, shape, stateNames, onDirty); break;
+    case 'particles': buildParticlesEditor(ctx.propsEl, shape, availableVars, stateNames, onDirty); break;
+    case 'radialRepeat': buildRadialRepeatEditor(ctx.propsEl, shape, availableVars, onDirty); break;
+    case 'repeat': buildRepeatEditor(ctx.propsEl, shape, availableVars, onDirty); break;
+    case 'forEach': buildForEachEditor(ctx.propsEl, shape, onDirty); break;
+  }
+
+  // Setup section (use proxy — auto-creates setup overrides in non-BASE state)
+  buildSetupEditor(ctx.propsEl, shape, availableVars, onDirty);
+
+  // State overrides section (uses rawShape to show actual override data)
+  buildOverridesSection(ctx.propsEl, rawShape, onDirty);
+}
+
+// ─── State Overrides ─────────────────────────────────────────────────────────
+
+/** Get the overrides map for a raw shape (supports both 'states' and 'stateOverrides' keys). */
+function getShapeOverridesMap(shape) {
+  if (shape.states && typeof shape.states === 'object' && !Array.isArray(shape.states)) return shape.states;
+  if (shape.stateOverrides && typeof shape.stateOverrides === 'object') return shape.stateOverrides;
+  return null;
+}
+
+function buildOverridesSection(parent, rawShape, onDirty) {
+  const container = document.createElement('div');
+  container.className = 'overrides-section';
+  buildOverridesContent(container, rawShape, onDirty);
+  parent.appendChild(container);
+}
+
+function buildOverridesContent(container, rawShape, onDirty) {
+  const state = ctx.currentEditState;
+  const overridesMap = getShapeOverridesMap(rawShape);
+
+  if (state === 'BASE') {
+    // Read-only summary of all state overrides
+    if (!overridesMap) return;
+    const states = Object.keys(overridesMap);
+    if (states.length === 0) return;
+
+    const group = PropertyGroup(`State Overrides (${states.length} states)`);
+    for (const [s, overrides] of Object.entries(overridesMap)) {
+      const keys = Object.keys(overrides);
+      const stateGroup = PropertyGroup(`${s} (${keys.length} props)`);
+      for (const [k, v] of Object.entries(overrides)) {
+        const lbl = document.createElement('div');
+        lbl.style.cssText = 'color:#7a6a4a;font-size:10px;padding:2px 4px;';
+        lbl.textContent = `${k}: ${JSON.stringify(v).slice(0, 50)}`;
+        stateGroup.body.appendChild(lbl);
+      }
+      group.addChild(stateGroup);
+    }
+    container.appendChild(group.el);
+    return;
+  }
+
+  // Non-BASE: show active overrides with reset buttons
+  if (!overridesMap || !overridesMap[state]) return;
+  const stateOverrides = overridesMap[state];
+  if (Object.keys(stateOverrides).length === 0) return;
+
+  const divider = document.createElement('div');
+  divider.style.cssText = 'border-top:2px solid #33ddcc44;margin:8px 0 4px;padding-top:4px;';
+  const label = document.createElement('div');
+  label.style.cssText = 'color:#33ddcc;font-size:11px;font-weight:bold;margin-bottom:4px;';
+  label.textContent = `Active Overrides: ${state}`;
+  divider.appendChild(label);
+  container.appendChild(divider);
+
+  for (const [key, val] of Object.entries(stateOverrides)) {
+    if (key === 'setup' && typeof val === 'object') {
+      // Show setup overrides
+      for (const [sk, sv] of Object.entries(val)) {
+        addOverrideRow(container, `setup.${sk}`, sv, rawShape[sk], () => {
+          delete val[sk];
+          if (Object.keys(val).length === 0) delete stateOverrides.setup;
+          if (Object.keys(stateOverrides).length === 0) delete overridesMap[state];
+          onDirty();
+          buildShapeProps();
+          ctx.rebuildStateBar();
+          ctx.rebuildTree();
+        });
+      }
+    } else {
+      addOverrideRow(container, key, val, rawShape[key], () => {
+        delete stateOverrides[key];
+        if (Object.keys(stateOverrides).length === 0) delete overridesMap[state];
+        onDirty();
+        buildShapeProps();
+        ctx.rebuildStateBar();
+        ctx.rebuildTree();
+      });
+    }
+  }
+}
+
+function addOverrideRow(parent, key, val, baseVal, onReset) {
+  const row = document.createElement('div');
+  row.style.cssText = 'display:flex;align-items:center;gap:4px;padding:2px 0;';
+
+  const keyEl = document.createElement('span');
+  keyEl.style.cssText = 'color:#33ddcc;font-size:10px;min-width:80px;';
+  keyEl.textContent = key;
+  row.appendChild(keyEl);
+
+  const valEl = document.createElement('span');
+  valEl.style.cssText = 'color:#7a6a4a;font-size:10px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+  valEl.textContent = JSON.stringify(val).slice(0, 40);
+  row.appendChild(valEl);
+
+  if (baseVal !== undefined) {
+    const baseHint = document.createElement('span');
+    baseHint.style.cssText = 'color:#5a4a30;font-size:9px;';
+    baseHint.textContent = `base: ${JSON.stringify(baseVal).slice(0, 20)}`;
+    row.appendChild(baseHint);
+  }
+
+  const resetBtn = Button('Reset', onReset, 'subtle');
+  resetBtn.el.style.cssText += 'padding:1px 6px;font-size:9px;';
+  resetBtn.el.className += ' editor-btn-danger';
+  row.appendChild(resetBtn.el);
+
+  parent.appendChild(row);
+}
+
+// ─── Animations Section ─────────────────────────────────────────────────────
+
+function buildAnimationsSection(parent, artDef, shapePath, shape, stateNames, onDirty) {
+  const ANIMATION_TYPES = new Set(['group', 'oscillator', 'spinner', 'conditional']);
+
+  // Check if parent is an animation/group container
+  let hasParentAnimation = false;
+  if (shapePath.length >= 2) {
+    const parentPath = shapePath.slice(0, -1);
+    const parentShape = getShapeAtPath(artDef.shapes, parentPath);
+    if (parentShape && ANIMATION_TYPES.has(parentShape.type)) {
+      hasParentAnimation = true;
+      const group = PropertyGroup(`${parentShape.type === 'group' ? 'Group' : 'Animation'}: ${parentShape.type}`);
+
+      // Show parent's editable properties inline (use proxy for state-aware editing)
+      const parentProxy = createStateProxy(parentShape, ctx.currentEditState);
+      const availableVars = collectAvailableVars(artDef, parentPath);
+      const parentOnDirty = () => { ctx.markDirty(); };
+      switch (parentShape.type) {
+        case 'group': buildGroupEditor(group.body, parentProxy, availableVars, parentOnDirty); break;
+        case 'oscillator': buildOscillatorEditor(group.body, parentProxy, availableVars, stateNames, parentOnDirty); break;
+        case 'spinner': buildSpinnerEditor(group.body, parentProxy, availableVars, stateNames, parentOnDirty); break;
+        case 'conditional': buildConditionalEditor(group.body, parentProxy, stateNames, parentOnDirty); break;
+      }
+
+      // Remove animation button
+      const removeBtn = Button('Remove Animation', () => {
+        const newPath = removeParentAnimation(artDef, shapePath);
+        if (newPath) {
+          ctx.selectedShapePath = newPath;
+          ctx.markDirty();
+          ctx.rebuildTree();
+          ctx.rebuildProps();
+        }
+      }, 'subtle');
+      removeBtn.el.className += ' editor-btn-danger';
+      removeBtn.el.style.cssText += 'margin-top:4px;';
+      group.body.appendChild(removeBtn.el);
+
+      parent.appendChild(group.el);
+    }
+  }
+
+  // "Add Animation" dropdown
+  const addRow = document.createElement('div');
+  addRow.style.cssText = 'margin:4px 0;';
+  const addSel = document.createElement('select');
+  addSel.className = 'editor-select-input';
+  addSel.style.cssText = 'width:auto;font-size:10px;padding:2px 6px;';
+  const ph = document.createElement('option');
+  ph.textContent = hasParentAnimation ? '+ Add another animation...' : '+ Add animation...';
+  ph.value = '';
+  addSel.appendChild(ph);
+  for (const type of ['group', 'oscillator', 'spinner', 'conditional']) {
+    const o = document.createElement('option');
+    o.value = type;
+    o.textContent = type.charAt(0).toUpperCase() + type.slice(1);
+    addSel.appendChild(o);
+  }
+  addSel.addEventListener('change', () => {
+    if (!addSel.value) return;
+    const newChildPath = wrapShapeInAnimation(artDef, shapePath, addSel.value);
+    if (newChildPath) {
+      ctx.expandedPaths.add(pathToKey(shapePath));
+      ctx.selectedShapePath = newChildPath;
+      ctx.markDirty();
+      ctx.rebuildTree();
+      ctx.rebuildProps();
+    }
+  });
+  addRow.appendChild(addSel);
+  parent.appendChild(addRow);
+}
+
+// ─── Per-Type Shape Editors ──────────────────────────────────────────────────
+
+function buildGroupEditor(parent, shape, vars, onDirty) {
+  const set = (k, v) => { shape[k] = v; onDirty(); };
+  parent.appendChild(CoordEditor('cx', shape.cx || 0, vars, v => set('cx', v)).el);
+  parent.appendChild(CoordEditor('cy', shape.cy || 0, vars, v => set('cy', v)).el);
+  parent.appendChild(NumberSlider('Rotation', -Math.PI, Math.PI, 0.05, shape.rotation || 0, v => {
+    const r = ctx.previewRadius;
+    const art = ctx.currentArt;
+    const w = art && art.space ? r * (art.space.widthFactor || 1) : r;
+    const h = art && art.space ? r * (art.space.heightFactor || 1) : r;
+    rotateShapeAroundCenter(shape, v, { r, w, h });
+    onDirty();
+  }).el);
+
+  const info = document.createElement('div');
+  info.style.cssText = 'color:#5a4a30;font-size:10px;padding:4px;';
+  info.textContent = `${(shape.shapes || []).length} child shape(s) — select in tree to edit`;
+  parent.appendChild(info);
+}
+
+function buildRadialRepeatEditor(parent, shape, vars, onDirty) {
+  const set = (k, v) => { shape[k] = v; onDirty(); };
+  parent.appendChild(CoordEditor('cx', shape.cx || 0, vars, v => set('cx', v)).el);
+  parent.appendChild(CoordEditor('cy', shape.cy || 0, vars, v => set('cy', v)).el);
+  parent.appendChild(CoordEditor('radius', shape.radius || 0, vars, v => set('radius', v)).el);
+  parent.appendChild(NumberSlider('Count', 1, 24, 1, shape.count || 6, v => set('count', v)).el);
+
+  const info = document.createElement('div');
+  info.style.cssText = 'color:#5a4a30;font-size:10px;padding:4px;';
+  info.textContent = `${(shape.shapes || []).length} child shape(s) — select in tree to edit`;
+  parent.appendChild(info);
+}
+
+function buildCircleEditor(parent, shape, vars, onDirty) {
+  const set = (k, v) => { shape[k] = v; onDirty(); };
+  parent.appendChild(CoordEditor('cx', shape.cx, vars, v => set('cx', v)).el);
+  parent.appendChild(CoordEditor('cy', shape.cy, vars, v => set('cy', v)).el);
+
+  if (shape.radiusAbs !== undefined) {
+    parent.appendChild(NumberSlider('Radius (abs px)', 0.1, 10, 0.1, shape.radiusAbs, v => set('radiusAbs', v)).el);
+  } else {
+    parent.appendChild(NumberSlider('Radius', 0.01, 1, 0.01, shape.radius || 0.1, v => set('radius', v)).el);
+  }
+  if (shape.radiusOffset !== undefined) {
+    parent.appendChild(NumberSlider('Radius Offset', -5, 5, 0.5, shape.radiusOffset, v => set('radiusOffset', v)).el);
+  }
+  parent.appendChild(NumberSlider('Rotation', -Math.PI, Math.PI, 0.05, shape.rotation || 0, v => set('rotation', v)).el);
+
+  parent.appendChild(Toggle('Stroke', shape.stroke || false, v => set('stroke', v)).el);
+  parent.appendChild(Toggle('Fill', shape.fill || false, v => set('fill', v)).el);
+  if (shape.fillColor !== undefined) {
+    parent.appendChild(ColorInput('Fill Color', shape.fillColor, v => set('fillColor', v)).el);
+  }
+}
+
+function buildPathEditor(parent, shape, vars, onDirty) {
+  const set = (k, v) => { shape[k] = v; onDirty(); };
+
+  parent.appendChild(NumberSlider('Rotation', -Math.PI, Math.PI, 0.05, shape.rotation || 0, v => set('rotation', v)).el);
+  parent.appendChild(Toggle('Closed', shape.closed || false, v => set('closed', v)).el);
+  parent.appendChild(Toggle('Stroke', shape.stroke || false, v => set('stroke', v)).el);
+  parent.appendChild(Toggle('Fill', shape.fill || false, v => set('fill', v)).el);
+  if (shape.fillColor !== undefined) {
+    parent.appendChild(ColorInput('Fill Color', shape.fillColor, v => set('fillColor', v)).el);
+  }
+
+  if (shape.points) {
+    const group = PropertyGroup(`Points (${shape.points.length})`);
+    parent.appendChild(group.el);
+
+    // In non-BASE state, clone points into override on first edit so mutations
+    // go to the override copy instead of modifying the base shape.
+    let cloned = ctx.currentEditState === 'BASE';
+    function ensureClone() {
+      if (!cloned) {
+        shape.points = JSON.parse(JSON.stringify(shape.points));
+        cloned = true;
+      }
+    }
+    // Get the point at index from the (possibly cloned) points array
+    function pt(i) { return shape.points[i]; }
+
+    function rebuildPoints() {
+      group.body.innerHTML = '';
+      shape.points.forEach((_pt, i) => {
+        const isObj = typeof _pt === 'object' && !Array.isArray(_pt);
+        const ptGroup = PropertyGroup(`[${i}]`);
+
+        if (isObj) {
+          ptGroup.addChild(CoordEditor('x', _pt.x, vars, v => { ensureClone(); pt(i).x = v; onDirty(); }));
+          ptGroup.addChild(CoordEditor('y', _pt.y, vars, v => { ensureClone(); pt(i).y = v; onDirty(); }));
+        } else if (Array.isArray(_pt)) {
+          const row = document.createElement('div');
+          row.style.cssText = 'display:flex;gap:4px;align-items:center;';
+          const xIn = document.createElement('input');
+          xIn.type = 'number'; xIn.className = 'editor-num-input';
+          xIn.style.width = '70px'; xIn.value = _pt[0]; xIn.step = 0.05;
+          xIn.addEventListener('change', () => { ensureClone(); pt(i)[0] = parseFloat(xIn.value) || 0; onDirty(); });
+          const yIn = document.createElement('input');
+          yIn.type = 'number'; yIn.className = 'editor-num-input';
+          yIn.style.width = '70px'; yIn.value = _pt[1]; yIn.step = 0.05;
+          yIn.addEventListener('change', () => { ensureClone(); pt(i)[1] = parseFloat(yIn.value) || 0; onDirty(); });
+          row.appendChild(xIn); row.appendChild(yIn);
+          ptGroup.body.appendChild(row);
+        }
+
+        const delBtn = document.createElement('button');
+        delBtn.className = 'editor-btn editor-btn-danger';
+        delBtn.style.cssText = 'padding:1px 4px;font-size:10px;';
+        delBtn.textContent = '\u00d7';
+        delBtn.addEventListener('click', () => { ensureClone(); shape.points.splice(i, 1); onDirty(); rebuildPoints(); });
+        ptGroup.body.appendChild(delBtn);
+
+        group.addChild(ptGroup);
+      });
+
+      const addBtn = Button('+ Point', () => {
+        ensureClone();
+        shape.points.push({ x: { w: 0 }, y: { h: 0 } });
+        onDirty();
+        rebuildPoints();
+      }, 'subtle');
+      group.body.appendChild(addBtn.el);
+    }
+    rebuildPoints();
+  }
+}
+
+function buildBezierPathEditor(parent, shape, vars, onDirty) {
+  const set = (k, v) => { shape[k] = v; onDirty(); };
+
+  parent.appendChild(NumberSlider('Rotation', -Math.PI, Math.PI, 0.05, shape.rotation || 0, v => set('rotation', v)).el);
+  parent.appendChild(Toggle('Closed', shape.closed || false, v => set('closed', v)).el);
+  parent.appendChild(Toggle('Stroke', shape.stroke || false, v => set('stroke', v)).el);
+  parent.appendChild(Toggle('Fill', shape.fill || false, v => set('fill', v)).el);
+  if (shape.fillColor !== undefined) {
+    parent.appendChild(ColorInput('Fill Color', shape.fillColor, v => set('fillColor', v)).el);
+  }
+
+  // Start point
+  if (shape.start && Array.isArray(shape.start)) {
+    const startGroup = PropertyGroup('Start');
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;gap:4px;align-items:center;';
+    const xIn = document.createElement('input');
+    xIn.type = 'number'; xIn.className = 'editor-num-input';
+    xIn.style.width = '70px'; xIn.value = shape.start[0]; xIn.step = 0.05;
+    xIn.addEventListener('change', () => { shape.start[0] = parseFloat(xIn.value) || 0; onDirty(); });
+    const yIn = document.createElement('input');
+    yIn.type = 'number'; yIn.className = 'editor-num-input';
+    yIn.style.width = '70px'; yIn.value = shape.start[1]; yIn.step = 0.05;
+    yIn.addEventListener('change', () => { shape.start[1] = parseFloat(yIn.value) || 0; onDirty(); });
+    row.appendChild(xIn); row.appendChild(yIn);
+    startGroup.body.appendChild(row);
+    parent.appendChild(startGroup.el);
+  }
+
+  // Curves
+  if (shape.curves) {
+    const isQuad = shape.type === 'quadPath';
+    const group = PropertyGroup(`Curves (${shape.curves.length})`);
+    parent.appendChild(group.el);
+
+    function pointRow(label, arr, onChange) {
+      const pg = PropertyGroup(label);
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;gap:4px;align-items:center;';
+      const xIn = document.createElement('input');
+      xIn.type = 'number'; xIn.className = 'editor-num-input';
+      xIn.style.width = '70px'; xIn.value = arr[0]; xIn.step = 0.05;
+      xIn.addEventListener('change', () => { arr[0] = parseFloat(xIn.value) || 0; onChange(); });
+      const yIn = document.createElement('input');
+      yIn.type = 'number'; yIn.className = 'editor-num-input';
+      yIn.style.width = '70px'; yIn.value = arr[1]; yIn.step = 0.05;
+      yIn.addEventListener('change', () => { arr[1] = parseFloat(yIn.value) || 0; onChange(); });
+      row.appendChild(xIn); row.appendChild(yIn);
+      pg.body.appendChild(row);
+      return pg;
+    }
+
+    function rebuildCurves() {
+      group.body.innerHTML = '';
+      shape.curves.forEach((c, i) => {
+        const cGroup = PropertyGroup(`[${i}]`);
+        if (c.cp1 && Array.isArray(c.cp1)) cGroup.addChild(pointRow('cp1', c.cp1, onDirty));
+        if (c.cp && Array.isArray(c.cp)) cGroup.addChild(pointRow('cp', c.cp, onDirty));
+        if (c.cp2 && Array.isArray(c.cp2)) cGroup.addChild(pointRow('cp2', c.cp2, onDirty));
+        if (c.to && Array.isArray(c.to)) cGroup.addChild(pointRow('to', c.to, onDirty));
+
+        const delBtn = document.createElement('button');
+        delBtn.className = 'editor-btn editor-btn-danger';
+        delBtn.style.cssText = 'padding:1px 4px;font-size:10px;';
+        delBtn.textContent = '\u00d7';
+        delBtn.addEventListener('click', () => { shape.curves.splice(i, 1); onDirty(); rebuildCurves(); });
+        cGroup.body.appendChild(delBtn);
+
+        group.addChild(cGroup);
+      });
+
+      const addBtn = Button('+ Curve', () => {
+        const last = shape.curves.length > 0 ? shape.curves[shape.curves.length - 1].to : shape.start;
+        const base = Array.isArray(last) ? last : [0, 0];
+        if (isQuad) {
+          shape.curves.push({ cp: [base[0] + 0.1, base[1]], to: [base[0] + 0.2, base[1]] });
+        } else {
+          shape.curves.push({ cp1: [base[0] + 0.1, base[1]], cp2: [base[0] + 0.15, base[1]], to: [base[0] + 0.2, base[1]] });
+        }
+        onDirty();
+        rebuildCurves();
+      }, 'subtle');
+      group.body.appendChild(addBtn.el);
+    }
+    rebuildCurves();
+  }
+}
+
+function buildLinesEditor(parent, shape, vars, onDirty) {
+  const set = (k, v) => { shape[k] = v; onDirty(); };
+
+  parent.appendChild(NumberSlider('Rotation', -Math.PI, Math.PI, 0.05, shape.rotation || 0, v => set('rotation', v)).el);
+  parent.appendChild(Toggle('Stroke', shape.stroke || false, v => set('stroke', v)).el);
+  parent.appendChild(Toggle('Fill', shape.fill || false, v => set('fill', v)).el);
+  if (shape.fillColor !== undefined) {
+    parent.appendChild(ColorInput('Fill Color', shape.fillColor, v => set('fillColor', v)).el);
+  }
+
+  if (shape.segments) {
+    const group = PropertyGroup(`Segments (${shape.segments.length})`);
+    parent.appendChild(group.el);
+
+    // In non-BASE state, clone segments into override on first edit
+    let cloned = ctx.currentEditState === 'BASE';
+    function ensureClone() {
+      if (!cloned) {
+        shape.segments = JSON.parse(JSON.stringify(shape.segments));
+        cloned = true;
+      }
+    }
+    function seg(i) { return shape.segments[i]; }
+
+    function rebuildSegments() {
+      group.body.innerHTML = '';
+      shape.segments.forEach((_seg, i) => {
+        const segGroup = PropertyGroup(`Segment ${i}`);
+
+        _seg.forEach((_pt, pi) => {
+          const isObj = typeof _pt === 'object' && !Array.isArray(_pt);
+          const label = pi === 0 ? 'from' : 'to';
+
+          if (isObj) {
+            segGroup.addChild(CoordEditor(`${label}.x`, _pt.x, vars, v => { ensureClone(); seg(i)[pi].x = v; onDirty(); }));
+            segGroup.addChild(CoordEditor(`${label}.y`, _pt.y, vars, v => { ensureClone(); seg(i)[pi].y = v; onDirty(); }));
+          } else if (Array.isArray(_pt)) {
+            const row = document.createElement('div');
+            row.style.cssText = 'display:flex;gap:4px;align-items:center;';
+            const lbl = document.createElement('span');
+            lbl.style.cssText = 'color:#5a4a30;font-size:10px;width:30px;';
+            lbl.textContent = label;
+            row.appendChild(lbl);
+            for (let ci = 0; ci < _pt.length; ci++) {
+              const inp = document.createElement('input');
+              inp.type = 'number'; inp.className = 'editor-num-input';
+              inp.style.width = '60px'; inp.value = _pt[ci]; inp.step = 0.05;
+              const idx = ci;
+              inp.addEventListener('change', () => { ensureClone(); seg(i)[pi][idx] = parseFloat(inp.value) || 0; onDirty(); });
+              row.appendChild(inp);
+            }
+            segGroup.body.appendChild(row);
+          }
+        });
+
+        const delBtn = Button('\u00d7 Del', () => { ensureClone(); shape.segments.splice(i, 1); onDirty(); rebuildSegments(); }, 'subtle');
+        delBtn.el.className += ' editor-btn-danger';
+        delBtn.el.style.cssText += 'padding:1px 4px;font-size:10px;';
+        segGroup.body.appendChild(delBtn.el);
+        group.addChild(segGroup);
+      });
+
+      const addBtn = Button('+ Segment', () => {
+        ensureClone();
+        shape.segments.push([[0, 0], [0.3, 0]]);
+        onDirty();
+        rebuildSegments();
+      }, 'subtle');
+      group.body.appendChild(addBtn.el);
+    }
+    rebuildSegments();
+  }
+}
+
+function buildArcEditor(parent, shape, vars, onDirty) {
+  const set = (k, v) => { shape[k] = v; onDirty(); };
+  parent.appendChild(CoordEditor('cx', shape.cx, vars, v => set('cx', v)).el);
+  parent.appendChild(CoordEditor('cy', shape.cy, vars, v => set('cy', v)).el);
+  parent.appendChild(NumberSlider('Radius', 0.01, 2, 0.01, shape.radius || 0.5, v => set('radius', v)).el);
+  parent.appendChild(TextInput('Start Angle', String(shape.startAngle ?? 0), v => { shape.startAngle = isNaN(+v) ? v : +v; onDirty(); }).el);
+  parent.appendChild(TextInput('End Angle', String(shape.endAngle ?? 'PI*2'), v => { shape.endAngle = isNaN(+v) ? v : +v; onDirty(); }).el);
+  parent.appendChild(NumberSlider('Rotation', -Math.PI, Math.PI, 0.05, shape.rotation || 0, v => set('rotation', v)).el);
+  parent.appendChild(Toggle('Stroke', shape.stroke || false, v => set('stroke', v)).el);
+  parent.appendChild(Toggle('Fill', shape.fill || false, v => set('fill', v)).el);
+}
+
+function buildRectEditor(parent, shape, vars, onDirty) {
+  const set = (k, v) => { shape[k] = v; onDirty(); };
+  parent.appendChild(CoordEditor('x', shape.x, vars, v => set('x', v)).el);
+  parent.appendChild(CoordEditor('y', shape.y, vars, v => set('y', v)).el);
+  parent.appendChild(CoordEditor('w', shape.w, vars, v => set('w', v)).el);
+  parent.appendChild(CoordEditor('h', shape.h, vars, v => set('h', v)).el);
+  parent.appendChild(NumberSlider('Rotation', -Math.PI, Math.PI, 0.05, shape.rotation || 0, v => set('rotation', v)).el);
+  parent.appendChild(Toggle('Stroke', shape.stroke || false, v => set('stroke', v)).el);
+  parent.appendChild(Toggle('Fill', shape.fill || false, v => set('fill', v)).el);
+}
+
+function buildRoundedRectEditor(parent, shape, vars, onDirty) {
+  const set = (k, v) => { shape[k] = v; onDirty(); };
+  parent.appendChild(CoordEditor('x', shape.x, vars, v => set('x', v)).el);
+  parent.appendChild(CoordEditor('y', shape.y, vars, v => set('y', v)).el);
+  parent.appendChild(CoordEditor('width', shape.width, vars, v => set('width', v)).el);
+  parent.appendChild(CoordEditor('height', shape.height, vars, v => set('height', v)).el);
+  parent.appendChild(NumberSlider('Corner Radius', 0, 0.5, 0.01, shape.cornerRadius || 0.1, v => set('cornerRadius', v)).el);
+  parent.appendChild(NumberSlider('Rotation', -Math.PI, Math.PI, 0.05, shape.rotation || 0, v => set('rotation', v)).el);
+  parent.appendChild(Toggle('Stroke', shape.stroke || false, v => set('stroke', v)).el);
+  parent.appendChild(Toggle('Fill', shape.fill || false, v => set('fill', v)).el);
+}
+
+function buildBoltClusterEditor(parent, shape, vars, onDirty) {
+  const set = (k, v) => { shape[k] = v; onDirty(); };
+  parent.appendChild(CoordEditor('cx', shape.cx, vars, v => set('cx', v)).el);
+  parent.appendChild(CoordEditor('cy', shape.cy, vars, v => set('cy', v)).el);
+  parent.appendChild(NumberSlider('Spacing', 0.01, 1, 0.01, shape.spacing || 0.1, v => set('spacing', v)).el);
+  parent.appendChild(NumberSlider('Dot Radius', 0.1, 3, 0.1, shape.dotRadius || 0.8, v => set('dotRadius', v)).el);
+  parent.appendChild(NumberSlider('Rotation', -Math.PI, Math.PI, 0.05, shape.rotation || 0, v => set('rotation', v)).el);
+  if (shape.fillColor !== undefined) {
+    parent.appendChild(ColorInput('Fill Color', shape.fillColor, v => set('fillColor', v)).el);
+  }
+}
+
+function buildSpinnerEditor(parent, shape, vars, _stateNames, onDirty) {
+  const set = (k, v) => { shape[k] = v; onDirty(); };
+  parent.appendChild(CoordEditor('cx', shape.cx, vars, v => set('cx', v)).el);
+  parent.appendChild(CoordEditor('cy', shape.cy, vars, v => set('cy', v)).el);
+  parent.appendChild(CoordEditor('orbitRadius', shape.orbitRadius || 0, vars, v => set('orbitRadius', v)).el);
+  parent.appendChild(NumberSlider('Rate', 0, 0.05, 0.001, shape.rate || 0.01, v => set('rate', v)).el);
+  parent.appendChild(NumberSlider('Copies', 1, 12, 1, shape.copies || 1, v => set('copies', v)).el);
+
+  const info = document.createElement('div');
+  info.style.cssText = 'color:#5a4a30;font-size:10px;padding:4px;';
+  info.textContent = `${(shape.shapes || []).length} child shape(s) \u2014 select in tree to edit`;
+  parent.appendChild(info);
+}
+
+function buildOscillatorEditor(parent, shape, vars, stateNames, onDirty) {
+  const set = (k, v) => { shape[k] = v; onDirty(); };
+  parent.appendChild(TextInput('Variable', shape.var || 'v', v => set('var', v)).el);
+  parent.appendChild(NumberSlider('Rate', 0, 0.02, 0.0005, shape.rate || 0.003, v => set('rate', v)).el);
+  parent.appendChild(NumberSlider('Amplitude', 0, 2, 0.01, shape.amplitude || 0.4, v => set('amplitude', v)).el);
+  parent.appendChild(NumberSlider('Base', -2, 2, 0.01, shape.base || 0, v => set('base', v)).el);
+  parent.appendChild(NumberSlider('Default Value', -2, 2, 0.01, shape.defaultValue || 0, v => set('defaultValue', v)).el);
+
+  if (typeof shape.phase === 'string') {
+    parent.appendChild(TextInput('Phase', shape.phase, v => set('phase', v)).el);
+  } else {
+    parent.appendChild(NumberSlider('Phase', 0, 6.28, 0.1, shape.phase || 0, v => set('phase', v)).el);
+  }
+
+  if (!shape.activeStates) shape.activeStates = [];
+  parent.appendChild(TagListEditor('Active States', shape.activeStates, stateNames, v => { shape.activeStates = v; onDirty(); }).el);
+
+  const info = document.createElement('div');
+  info.style.cssText = 'color:#5a4a30;font-size:10px;padding:4px;';
+  info.textContent = `${(shape.shapes || []).length} child shape(s) \u2014 select in tree to edit`;
+  parent.appendChild(info);
+}
+
+function buildConditionalEditor(parent, shape, _stateNames, _onDirty) {
+  const info = document.createElement('div');
+  info.style.cssText = 'color:#5a4a30;font-size:10px;padding:4px;';
+  info.textContent = `${(shape.shapes || []).length} child shape(s) \u2014 select in tree to edit`;
+  parent.appendChild(info);
+}
+
+function buildParticlesEditor(parent, shape, vars, stateNames, onDirty) {
+  if (shape.emitters) {
+    shape.emitters.forEach((emitter, ei) => {
+      const emGroup = PropertyGroup(`Emitter ${ei} (${emitter.kind})`);
+      parent.appendChild(emGroup.el);
+
+      const emSet = (k, v) => { emitter[k] = v; onDirty(); };
+
+      emGroup.addChild(Select('Kind', ['dots', 'lines', 'strips'], emitter.kind || 'dots', v => emSet('kind', v)));
+      emGroup.addChild(CoordEditor('cx', emitter.cx, vars, v => emSet('cx', v)));
+      emGroup.addChild(CoordEditor('cy', emitter.cy, vars, v => emSet('cy', v)));
+      emGroup.addChild(NumberSlider('Count', 1, 100, 1, emitter.count || 1, v => emSet('count', v)));
+
+      if (emitter.kind === 'dots') {
+        if (emitter.offsetX !== undefined) emGroup.addChild(NumberSlider('Offset X', -2, 2, 0.05, emitter.offsetX, v => emSet('offsetX', v)));
+        emGroup.addChild(NumberSlider('Spread X', 0, 2, 0.05, emitter.spreadX || 0.5, v => emSet('spreadX', v)));
+        emGroup.addChild(NumberSlider('Spread Y', 0, 2, 0.05, emitter.spreadY || 0.5, v => emSet('spreadY', v)));
+        emGroup.addChild(NumberSlider('Size Min', 0.1, 5, 0.1, emitter.sizeMin || 0.5, v => emSet('sizeMin', v)));
+        emGroup.addChild(NumberSlider('Size Range', 0, 5, 0.1, emitter.sizeRange || 1, v => emSet('sizeRange', v)));
+        emGroup.addChild(NumberSlider('Alpha Min', 0, 1, 0.05, emitter.alphaMin || 0.3, v => emSet('alphaMin', v)));
+        emGroup.addChild(NumberSlider('Alpha Range', 0, 1, 0.05, emitter.alphaRange || 0.5, v => emSet('alphaRange', v)));
+        if (emitter.colorThreshold !== undefined) emGroup.addChild(NumberSlider('Color Threshold', 0, 1, 0.05, emitter.colorThreshold, v => emSet('colorThreshold', v)));
+
+        if (emitter.colors) {
+          emitter.colors.forEach((c, ci) => {
+            emGroup.addChild(ColorInput(`Color [${ci}]`, c, v => { emitter.colors[ci] = v; onDirty(); }));
+          });
+        }
+        if (emitter.shadowColor) emGroup.addChild(ColorInput('Shadow Color', emitter.shadowColor, v => emSet('shadowColor', v)));
+        if (emitter.shadowBlur !== undefined) emGroup.addChild(NumberSlider('Shadow Blur', 0, 30, 1, emitter.shadowBlur, v => emSet('shadowBlur', v)));
+      } else if (emitter.kind === 'lines') {
+        if (emitter.startOffset !== undefined) emGroup.addChild(NumberSlider('Start Offset', 0, 2, 0.05, emitter.startOffset, v => emSet('startOffset', v)));
+        if (emitter.spreadFactor !== undefined) emGroup.addChild(NumberSlider('Spread Factor', 0, 2, 0.05, emitter.spreadFactor, v => emSet('spreadFactor', v)));
+        if (emitter.reachOffset !== undefined) emGroup.addChild(NumberSlider('Reach Offset', 0, 2, 0.05, emitter.reachOffset, v => emSet('reachOffset', v)));
+        if (emitter.reachFactor !== undefined) emGroup.addChild(NumberSlider('Reach Factor', 0, 2, 0.05, emitter.reachFactor, v => emSet('reachFactor', v)));
+        emGroup.addChild(NumberSlider('Alpha Min', 0, 1, 0.05, emitter.alphaMin || 0.3, v => emSet('alphaMin', v)));
+        emGroup.addChild(NumberSlider('Alpha Range', 0, 1, 0.05, emitter.alphaRange || 0.5, v => emSet('alphaRange', v)));
+        emGroup.addChild(ColorInput('Color', emitter.color || '#ffffff', v => emSet('color', v)));
+        emGroup.addChild(NumberSlider('Line Width', 0.1, 5, 0.1, emitter.lineWidth || 1, v => emSet('lineWidth', v)));
+      } else if (emitter.kind === 'strips') {
+        emGroup.addChild(NumberSlider('Spread', 0.1, 2, 0.05, emitter.spread || 0.9, v => emSet('spread', v)));
+        emGroup.addChild(NumberSlider('Strip Length', 0.01, 0.5, 0.01, emitter.stripLength || 0.12, v => emSet('stripLength', v)));
+        emGroup.addChild(NumberSlider('Line Width', 0.005, 0.1, 0.005, emitter.lineWidth || 0.02, v => emSet('lineWidth', v)));
+        emGroup.addChild(NumberSlider('Rotate Speed Min', 0, 0.02, 0.001, emitter.rotateSpeedMin || 0.002, v => emSet('rotateSpeedMin', v)));
+        emGroup.addChild(NumberSlider('Rotate Speed Max', 0, 0.02, 0.001, emitter.rotateSpeedMax || 0.008, v => emSet('rotateSpeedMax', v)));
+        emGroup.addChild(NumberSlider('Alpha Min', 0, 1, 0.05, emitter.alphaMin || 0.35, v => emSet('alphaMin', v)));
+        emGroup.addChild(NumberSlider('Alpha Range', 0, 1, 0.05, emitter.alphaRange || 0.5, v => emSet('alphaRange', v)));
+        if (emitter.colors) {
+          emitter.colors.forEach((c, ci) => {
+            emGroup.addChild(ColorInput(`Color [${ci}]`, c, v => { emitter.colors[ci] = v; onDirty(); }));
+          });
+        }
+        if (emitter.shadowColor) emGroup.addChild(ColorInput('Shadow Color', emitter.shadowColor, v => emSet('shadowColor', v)));
+        if (emitter.shadowBlur !== undefined) emGroup.addChild(NumberSlider('Shadow Blur', 0, 30, 1, emitter.shadowBlur, v => emSet('shadowBlur', v)));
+      }
+
+      const delBtn = Button('Delete Emitter', () => {
+        shape.emitters.splice(ei, 1);
+        onDirty();
+        buildShapeProps();
+      }, 'subtle');
+      delBtn.el.className += ' editor-btn-danger';
+      emGroup.body.appendChild(delBtn.el);
+    });
+
+    const addEmBtn = Button('+ Add Emitter', () => {
+      shape.emitters.push({
+        kind: 'dots', count: 3, cx: 0, cy: 0,
+        spreadX: 0.5, spreadY: 0.5, sizeMin: 0.5, sizeRange: 1,
+        alphaMin: 0.3, alphaRange: 0.5, colors: ['#ff0', '#fff'],
+        shadowColor: '#ff0', shadowBlur: 4,
+      });
+      onDirty();
+      buildShapeProps();
+    }, 'subtle');
+    parent.appendChild(addEmBtn.el);
+  }
+}
+
+function buildRepeatEditor(parent, shape, vars, onDirty) {
+  const set = (k, v) => { shape[k] = v; onDirty(); };
+  parent.appendChild(TextInput('Variable', shape.var || 'i', v => set('var', v)).el);
+  parent.appendChild(CoordEditor('From', shape.from, vars, v => set('from', v)).el);
+  parent.appendChild(CoordEditor('To', shape.to, vars, v => set('to', v)).el);
+  parent.appendChild(NumberSlider('Step', 0.01, 2, 0.01, shape.step || 0.25, v => set('step', v)).el);
+
+  const info = document.createElement('div');
+  info.style.cssText = 'color:#5a4a30;font-size:10px;padding:4px;';
+  info.textContent = `${(shape.shapes || []).length} child shape(s) \u2014 select in tree to edit`;
+  parent.appendChild(info);
+}
+
+function buildForEachEditor(parent, shape, onDirty) {
+  parent.appendChild(TextInput('Variable(s)', Array.isArray(shape.var) ? shape.var.join(', ') : shape.var || 'p', v => {
+    shape.var = v.includes(',') ? v.split(',').map(s => s.trim()) : v;
+    onDirty();
+  }).el);
+  parent.appendChild(TextInput('Items (JSON)', JSON.stringify(shape.items || []), v => {
+    try { shape.items = JSON.parse(v); onDirty(); } catch { /* ignore invalid JSON */ }
+  }).el);
+
+  const info = document.createElement('div');
+  info.style.cssText = 'color:#5a4a30;font-size:10px;padding:4px;';
+  info.textContent = `${(shape.shapes || []).length} child shape(s) \u2014 select in tree to edit`;
+  parent.appendChild(info);
+}
+
+// ─── Setup Editor ────────────────────────────────────────────────────────────
+
+function buildSetupEditor(parent, shape, availableVars, onDirty) {
+  if (!shape.setup && !shape.fillColor) {
+    const addBtn = Button('+ Add Setup', () => {
+      shape.setup = {};
+      onDirty();
+      buildShapeProps();
+    }, 'subtle');
+    parent.appendChild(addBtn.el);
+    return;
+  }
+
+  const group = PropertyGroup('Setup');
+  parent.appendChild(group.el);
+
+  if (shape.setup) {
+    const s = shape.setup;
+    const ss = (k, v) => { s[k] = v; onDirty(); };
+
+    // Numeric setup properties — support both plain numbers and anim-var objects
+    const numericKeys = [
+      { key: 'lineWidth', label: 'Line Width', min: 0.1, max: 5, step: 0.1 },
+      { key: 'alpha', label: 'Alpha', min: 0, max: 1, step: 0.05 },
+      { key: 'shadow', label: 'Shadow', min: 0, max: 30, step: 1 },
+      { key: 'shadowBlur', label: 'Shadow Blur', min: 0, max: 30, step: 1 },
+    ];
+    for (const { key, label, min, max, step } of numericKeys) {
+      if (s[key] === undefined) continue;
+      if (typeof s[key] === 'object' && s[key] !== null) {
+        // Anim-var object: { base: 0.5, pulse: 0.3 }
+        group.body.appendChild(buildAnimVarEditor(label, s, key, availableVars, min, max, step, onDirty));
+      } else {
+        group.addChild(NumberSlider(label, min, max, step, s[key], v => ss(key, v)));
+      }
+    }
+
+    // Color and enum setup properties
+    if (s.fillColor !== undefined) group.addChild(ColorInput('Fill Color', s.fillColor, v => ss('fillColor', v)));
+    if (s.strokeColor !== undefined) group.addChild(ColorInput('Stroke Color', s.strokeColor, v => ss('strokeColor', v)));
+    if (s.shadowColor !== undefined) group.addChild(ColorInput('Shadow Color', s.shadowColor, v => ss('shadowColor', v)));
+    if (s.lineCap !== undefined) group.addChild(Select('Line Cap', ['butt', 'round', 'square'], s.lineCap, v => ss('lineCap', v)));
+    if (s.lineJoin !== undefined) group.addChild(Select('Line Join', ['miter', 'round', 'bevel'], s.lineJoin, v => ss('lineJoin', v)));
+
+    const allSetupKeys = ['lineWidth', 'alpha', 'shadow', 'shadowBlur', 'fillColor', 'strokeColor', 'shadowColor', 'lineCap', 'lineJoin'];
+    const missing = allSetupKeys.filter(k => s[k] === undefined);
+    if (missing.length > 0) {
+      const addRow = document.createElement('div');
+      addRow.style.cssText = 'margin-top:4px;';
+      const addSel = document.createElement('select');
+      addSel.className = 'editor-select-input';
+      addSel.style.cssText = 'width:auto;font-size:10px;padding:1px 4px;';
+      const ph = document.createElement('option');
+      ph.textContent = '+ Add property...';
+      ph.value = '';
+      addSel.appendChild(ph);
+      missing.forEach(k => {
+        const o = document.createElement('option');
+        o.value = k; o.textContent = k;
+        addSel.appendChild(o);
+      });
+      addSel.addEventListener('change', () => {
+        if (!addSel.value) return;
+        const k = addSel.value;
+        const defaults = { lineWidth: 1, alpha: 1, shadow: 0, shadowBlur: 0, fillColor: '#ffffff', strokeColor: '#ffffff', shadowColor: '#ffffff', lineCap: 'butt', lineJoin: 'miter' };
+        s[k] = defaults[k];
+        onDirty();
+        buildShapeProps();
+      });
+      addRow.appendChild(addSel);
+      group.body.appendChild(addRow);
+    }
+  }
+}
+
+/**
+ * Build an editor for an anim-var object like { base: 0.5, pulse: 0.3 }.
+ * Shows each component with a slider and the ability to add/remove variable references.
+ */
+function buildAnimVarEditor(label, setupObj, key, availableVars, min, max, step, onDirty) {
+  const container = document.createElement('div');
+  container.className = 'editor-widget coord-editor';
+
+  const lbl = document.createElement('div');
+  lbl.className = 'coord-editor-label';
+  lbl.textContent = label;
+  container.appendChild(lbl);
+
+  const body = document.createElement('div');
+  container.appendChild(body);
+
+  function rebuild() {
+    body.innerHTML = '';
+    const obj = setupObj[key];
+
+    for (const [comp, val] of Object.entries(obj)) {
+      const row = document.createElement('div');
+      row.className = 'coord-component';
+
+      const keyEl = document.createElement('span');
+      keyEl.className = 'comp-key';
+      keyEl.textContent = comp;
+      row.appendChild(keyEl);
+
+      const slider = document.createElement('input');
+      slider.type = 'range';
+      slider.min = comp === 'base' ? min : -5;
+      slider.max = comp === 'base' ? max : 5;
+      slider.step = step;
+      slider.value = val;
+      slider.className = 'editor-slider';
+
+      const numInput = document.createElement('input');
+      numInput.type = 'number';
+      numInput.step = step;
+      numInput.value = val;
+      numInput.className = 'editor-num-input';
+      numInput.style.width = '60px';
+
+      const syncComp = comp;
+      const syncFn = (v) => { obj[syncComp] = parseFloat(v) || 0; onDirty(); };
+      slider.addEventListener('input', () => { numInput.value = slider.value; syncFn(slider.value); });
+      numInput.addEventListener('change', () => { slider.value = numInput.value; syncFn(numInput.value); });
+
+      row.appendChild(slider);
+      row.appendChild(numInput);
+
+      // Delete component (but not 'base')
+      if (comp !== 'base') {
+        const delBtn = document.createElement('button');
+        delBtn.className = 'comp-del';
+        delBtn.textContent = '\u00d7';
+        delBtn.addEventListener('click', () => {
+          delete obj[syncComp];
+          if (Object.keys(obj).length <= 1 && obj.base !== undefined) {
+            setupObj[key] = obj.base;
+          }
+          onDirty();
+          buildShapeProps();
+        });
+        row.appendChild(delBtn);
+      }
+
+      body.appendChild(row);
+    }
+
+    // Add variable reference
+    const existing = new Set(Object.keys(obj));
+    const addable = ['base', ...availableVars].filter(k => !existing.has(k));
+    if (addable.length > 0) {
+      const addRow = document.createElement('div');
+      addRow.style.cssText = 'margin-top:2px;';
+      const addSel = document.createElement('select');
+      addSel.className = 'editor-select-input';
+      addSel.style.cssText = 'width:auto;font-size:10px;padding:1px 4px;';
+      const ph = document.createElement('option');
+      ph.textContent = '+ Add var...';
+      ph.value = '';
+      addSel.appendChild(ph);
+      addable.forEach(k => {
+        const o = document.createElement('option');
+        o.value = k; o.textContent = k;
+        addSel.appendChild(o);
+      });
+      addSel.addEventListener('change', () => {
+        if (!addSel.value) return;
+        obj[addSel.value] = 0;
+        onDirty();
+        rebuild();
+      });
+      addRow.appendChild(addSel);
+      body.appendChild(addRow);
+    }
+  }
+
+  rebuild();
+  return container;
+}
+

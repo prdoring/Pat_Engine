@@ -1,0 +1,60 @@
+{
+  "sequences": {
+    "critterSpawn": {
+      "positional": true,
+      "steps": [
+        { "type": "signal", "name": "setState", "data": { "state": "idle" }, "delay": 0 },
+        { "type": "vfx", "effect": "poof", "delay": 0 },
+        { "type": "sfx", "sound": "spawnChirp", "delay": 0 },
+        { "type": "sfx", "sound": "settleChirp", "delay": 220 }
+      ]
+    },
+    "critterPet": {
+      "positional": true,
+      "steps": [
+        { "type": "signal", "name": "setState", "data": { "state": "happy" }, "delay": 0 },
+        { "type": "vfx", "effect": "jolt", "delay": 0, "offsetRange": { "x": [-6, 6], "y": [-10, -4] } },
+        { "type": "sfx", "sound": "happyChirp", "delay": 0, "repeat": [2, 3], "repeatDelay": 140 },
+        { "type": "signal", "name": "clearState", "delay": 900 }
+      ]
+    },
+    "critterScare": {
+      "positional": true,
+      "steps": [
+        { "type": "signal", "name": "setState", "data": { "state": "scared" }, "delay": 0 },
+        { "type": "vfx", "effect": "jolt", "delay": 0 },
+        { "type": "sfx", "sound": "squeak", "delay": 0 },
+        { "type": "signal", "name": "clearState", "delay": 1200 }
+      ]
+    },
+    "critterPair": {
+      "positional": true,
+      "steps": [
+        { "type": "signal", "name": "setState", "data": { "state": "linked" }, "delay": 0 },
+        { "type": "vfx", "effect": "poof", "delay": 0 },
+        { "type": "sfx", "sound": "chord", "delay": 0 }
+      ]
+    },
+    "critterDespawn": {
+      "positional": true,
+      "steps": [
+        { "type": "signal", "name": "setState", "data": { "state": "scared" }, "delay": 0 },
+        { "type": "vfx", "effect": "poof", "delay": 0 },
+        { "type": "sfx", "sound": "thud", "delay": 0, "volume": 0.7 },
+        { "type": "signal", "name": "removeEntity", "delay": 260 }
+      ]
+    },
+    "gardenAmbience": {
+      "steps": [
+        { "type": "loopStart", "sound": "ambientMusic", "handle": "music", "delay": 0, "fadeIn": 1.5 },
+        { "type": "loopStart", "sound": "windLoop", "handle": "wind", "delay": 0, "fadeIn": 2.0 }
+      ]
+    },
+    "gardenAmbienceStop": {
+      "steps": [
+        { "type": "loopStop", "handle": "music", "delay": 0, "fadeOut": 1.0 },
+        { "type": "loopStop", "handle": "wind", "delay": 0, "fadeOut": 1.0 }
+      ]
+    }
+  }
+}

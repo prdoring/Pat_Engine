@@ -1,0 +1,16 @@
+{
+  "artCollections": [
+    { "id": "critters", "label": "Critters", "file": "critter-art.json", "collectionKey": "critters" },
+    { "id": "props", "label": "Props", "file": "prop-art.json", "collectionKey": "props" }
+  ],
+  "previewEntities": [
+    { "id": "blob", "label": "Blob", "artCollection": "critters", "artId": "blob", "radius": 28, "color": "#7cc6a0", "states": ["idle", "happy", "scared"] },
+    { "id": "sprout", "label": "Sprout", "artCollection": "critters", "artId": "sprout", "radius": 24, "color": "#cad27a", "states": ["idle", "happy", "scared"] }
+  ],
+  "vfxCategories": [
+    { "id": "oneshot", "label": "One-shot", "match": ["poof", "burst", "jolt"] },
+    { "id": "persistent", "label": "Persistent", "match": ["aura", "glow", "sparkle"] },
+    { "id": "trail", "label": "Trails", "match": ["trail"] },
+    { "id": "beam", "label": "Beams", "match": ["tether", "beam"] }
+  ]
+}

@@ -1,0 +1,251 @@
+{
+  "effects": {
+    "poof": {
+      "type": "phased",
+      "duration": 700,
+      "defaultScale": 26,
+      "debris": [
+        {
+          "count": 7,
+          "speed": 90,
+          "lifetime": 600,
+          "size": 2,
+          "color": "#cfe6d8"
+        }
+      ],
+      "phases": [
+        {
+          "name": "flash",
+          "start": 0,
+          "end": 0.12,
+          "layers": [
+            {
+              "primitive": "filledCircle",
+              "radius": {
+                "from": 0.2,
+                "to": 0.5
+              },
+              "color": "#ffffff",
+              "alpha": {
+                "from": 0.8,
+                "to": 0
+              },
+              "shadow": {
+                "color": "#ffffff",
+                "blur": 24
+              }
+            }
+          ]
+        },
+        {
+          "name": "puff",
+          "start": 0,
+          "end": 0.55,
+          "layers": [
+            {
+              "primitive": "gradientCircle",
+              "radius": {
+                "from": 0.15,
+                "to": 0.65
+              },
+              "gradient": [
+                {
+                  "offset": 0,
+                  "color": "#bfe8cf"
+                },
+                {
+                  "offset": 1,
+                  "color": "#4f8a6a"
+                }
+              ],
+              "alpha": {
+                "from": 0.55,
+                "to": 0
+              },
+              "shadow": {
+                "color": "#4f8a6a",
+                "blur": 18
+              }
+            }
+          ]
+        },
+        {
+          "name": "ring",
+          "start": 0,
+          "end": 1,
+          "layers": [
+            {
+              "primitive": "strokeRing",
+              "radius": {
+                "from": 0,
+                "to": 1
+              },
+              "color": "#9fe0bb",
+              "lineWidth": {
+                "from": 3,
+                "to": 1
+              },
+              "alpha": {
+                "from": 0.7,
+                "to": 0
+              },
+              "shadow": {
+                "color": "#9fe0bb",
+                "blur": 10
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "jolt": {
+      "type": "phased",
+      "duration": 420,
+      "defaultScale": 30,
+      "phases": [
+        {
+          "name": "spikes",
+          "start": 0,
+          "end": 1,
+          "layers": [
+            {
+              "primitive": "spikeLines",
+              "count": 9,
+              "innerRadius": 0.25,
+              "outerRadius": {
+                "from": 0.4,
+                "to": 1
+              },
+              "color": "#ffd86a",
+              "lineWidth": {
+                "from": 2.5,
+                "to": 0.5
+              },
+              "alpha": {
+                "from": 0.9,
+                "to": 0
+              },
+              "shadow": {
+                "color": "#ffd86a",
+                "blur": 8
+              }
+            }
+          ]
+        },
+        {
+          "name": "core",
+          "start": 0,
+          "end": 0.6,
+          "layers": [
+            {
+              "primitive": "filledCircle",
+              "radius": {
+                "from": 0.3,
+                "to": 0.05
+              },
+              "color": "#fff2c0",
+              "alpha": {
+                "from": 0.9,
+                "to": 0,
+                "modulate": {
+                  "freq": 30,
+                  "amp": 0.2
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "sparkleAura": {
+      "type": "phased",
+      "lifecycle": "persistent",
+      "defaultScale": 1,
+      "phases": [
+        {
+          "name": "aura",
+          "start": 0,
+          "end": 1,
+          "layers": [
+            {
+              "primitive": "dashedRing",
+              "radius": {
+                "base": 26,
+                "amplitude": 4,
+                "freq": 0.004
+              },
+              "color": {
+                "local": "#fff7d8",
+                "remote": "#ffd86a"
+              },
+              "lineWidth": 2,
+              "dashPattern": [
+                3,
+                5
+              ],
+              "alpha": {
+                "base": 0.5,
+                "amplitude": 0.2,
+                "freq": 0.004
+              },
+              "shadow": {
+                "color": "$color",
+                "blur": 10
+              }
+            },
+            {
+              "primitive": "filledCircle",
+              "radius": {
+                "base": 4,
+                "amplitude": 1.5,
+                "freq": 0.006
+              },
+              "color": "#fff7d8",
+              "alpha": {
+                "base": 0.5,
+                "amplitude": 0.3,
+                "freq": 0.006
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "trailWander": {
+      "type": "bubbleTrail",
+      "maxLength": 26,
+      "pointLifetime": 700,
+      "bubbleMinRadius": 1,
+      "bubbleMaxRadius": 3,
+      "colorInner": "#bfe8cf",
+      "colorOuter": "#2c4a3a",
+      "maxSpeed": 120,
+      "glowBlur": 3
+    },
+    "trailDash": {
+      "type": "taperedTrail",
+      "maxLength": 18,
+      "pointLifetime": 350,
+      "baseWidth": 3,
+      "tipWidth": 0.3,
+      "colorInner": "#fff2c0",
+      "colorOuter": "#5a4a20",
+      "glowBlur": 6
+    },
+    "tether": {
+      "type": "wiggleBeam",
+      "segments": 14,
+      "wiggleAmplitude": 3,
+      "wiggleAmplitudeVariation": 2,
+      "wiggleFreq": 7,
+      "colorLocal": "#9fe0bb",
+      "colorRemote": "#e88ab0",
+      "lineWidth": 1.5,
+      "glowWidth": 5,
+      "alpha": 0.7,
+      "glowAlpha": 0.2,
+      "shadowBlur": 8,
+      "glowShadowBlur": 14
+    }
+  }
+}

@@ -1,0 +1,88 @@
+{
+  "categories": ["ambient", "critter", "fx", "ui"],
+  "sounds": {
+    "spawnChirp": {
+      "volume": 0.5, "range": 900, "category": "critter", "loop": false,
+      "synth": {
+        "layers": [
+          { "type": "sine", "freq": 520, "freqEnd": 880, "gain": 0.6 },
+          { "type": "triangle", "freq": 1040, "freqEnd": 1760, "gain": 0.15, "detune": 6 }
+        ],
+        "duration": 0.22, "attack": 0.004, "decay": 0.2, "reverb": 0.2
+      }
+    },
+    "settleChirp": {
+      "volume": 0.35, "range": 900, "category": "critter", "loop": false,
+      "synth": { "type": "sine", "freq": 660, "duration": 0.14, "attack": 0.003, "decay": 0.12 }
+    },
+    "happyChirp": {
+      "volume": 0.5, "range": 900, "category": "critter", "loop": false,
+      "synth": {
+        "layers": [
+          { "type": "sine", "freq": 784, "gain": 0.5 },
+          { "type": "triangle", "freq": 988, "gain": 0.25 },
+          { "type": "sine", "freq": 1175, "gain": 0.15, "detune": -5 }
+        ],
+        "duration": 0.3, "attack": 0.005, "decay": 0.28, "reverb": 0.35
+      }
+    },
+    "squeak": {
+      "volume": 0.4, "range": 900, "category": "critter", "loop": false,
+      "synth": {
+        "layers": [ { "type": "sine", "freq": 1200, "freqEnd": 700, "gain": 0.5 } ],
+        "duration": 0.18, "attack": 0.004, "decay": 0.15,
+        "lfo": { "freq": 18, "depth": 0.5 }
+      }
+    },
+    "chord": {
+      "volume": 0.4, "range": 0, "category": "fx", "loop": false,
+      "synth": {
+        "layers": [
+          { "type": "sine", "freq": 440, "gain": 0.4 },
+          { "type": "triangle", "freq": 554, "gain": 0.25, "detune": 4 },
+          { "type": "sawtooth", "freq": 659, "gain": 0.12 }
+        ],
+        "duration": 0.5, "attack": 0.01, "decay": 0.48, "reverb": 0.4
+      }
+    },
+    "thud": {
+      "volume": 0.6, "range": 1200, "category": "fx", "loop": false,
+      "synth": { "layers": [ { "type": "file", "file": "/SFX/thud.wav" } ] }
+    },
+    "chime": {
+      "volume": 0.5, "range": 0, "category": "ui", "loop": false,
+      "synth": {
+        "layers": [
+          { "type": "file", "file": "/SFX/chime.wav" },
+          { "type": "sine", "freq": 1320, "gain": 0.12 }
+        ]
+      }
+    },
+    "uiClick": {
+      "volume": 0.3, "range": 0, "category": "ui", "loop": false,
+      "synth": { "type": "square", "freq": 660, "duration": 0.05, "attack": 0.001, "decay": 0.04 }
+    },
+    "ambientMusic": {
+      "volume": 0.18, "range": 0, "category": "ambient", "loop": true,
+      "synth": {
+        "layers": [
+          { "type": "sine", "freq": 196, "gain": 0.5 },
+          { "type": "triangle", "freq": 294, "gain": 0.25, "detune": 5 },
+          { "type": "sine", "freq": 392, "gain": 0.12 }
+        ],
+        "lfo": { "freq": 0.2, "depth": 0.4 }, "reverb": 0.6
+      }
+    },
+    "windLoop": {
+      "volume": 0.12, "range": 0, "category": "ambient", "loop": true,
+      "synth": {
+        "layers": [ { "type": "sine", "freq": 110, "gain": 0.5 }, { "type": "triangle", "freq": 138, "gain": 0.2 } ],
+        "lfo": { "freq": 0.5, "depth": 0.7 }, "reverb": 0.4
+      }
+    },
+    "critterHum": {
+      "volume": 0.25, "range": 700, "category": "critter", "loop": true,
+      "synth": { "layers": [ { "type": "sine", "freq": 220, "gain": 0.4 }, { "type": "sine", "freq": 223, "gain": 0.25 } ] }
+    }
+  }
+}
