@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { parseMidi } from '/engine/audio/midi.js';
+import { parseMidi, beatsToSeconds, secondsToBeats, loopSeconds, importToBeats } from '/engine/audio/midi.js';
 
 // A hand-built Standard MIDI File: format 0, 1 track, PPQ=96, tempo 500000us (120 BPM).
 // Two quarter notes back to back: C4 (60) then E4 (64), each 96 ticks = 0.5s.
@@ -65,6 +65,42 @@ const SMF2 = new Uint8Array([
   0x00, 0x90, 0x4c, 0x64, 0x60, 0x80, 0x4c, 0x40, // E5 quarter
   0x00, 0xff, 0x2f, 0x00,                         // end of track
 ]);
+
+// ─── Beat ⇄ seconds conversions (editable JSON note patterns) ───
+
+test('beatsToSeconds converts a beats pattern at a tempo', () => {
+  const sec = beatsToSeconds([{ beat: 0, len: 1, midi: 60, vel: 0.5 }, { beat: 2, len: 0.5, midi: 64 }], 120);
+  // 120 BPM → 0.5s/beat
+  assert.deepEqual(sec[0], { time: 0, duration: 0.5, midi: 60, velocity: 0.5 });
+  assert.equal(sec[1].time, 1.0);
+  assert.equal(sec[1].duration, 0.25);
+  assert.equal(sec[1].velocity, 0.8); // default when vel omitted
+});
+
+test('secondsToBeats is the inverse of beatsToSeconds', () => {
+  const beats = [{ beat: 0, len: 1, midi: 60, vel: 0.7 }, { beat: 1.5, len: 0.25, midi: 67, vel: 0.9 }];
+  const round = secondsToBeats(beatsToSeconds(beats, 96), 96);
+  for (let i = 0; i < beats.length; i++) {
+    assert.ok(near(round[i].beat, beats[i].beat), `beat ${round[i].beat}`);
+    assert.ok(near(round[i].len, beats[i].len), `len ${round[i].len}`);
+    assert.equal(round[i].midi, beats[i].midi);
+    assert.ok(near(round[i].vel, beats[i].vel), `vel ${round[i].vel}`);
+  }
+});
+
+test('loopSeconds = bars*beatsPerBar*60/bpm', () => {
+  assert.equal(loopSeconds(4, 4, 120), 8);   // 16 beats at 0.5s
+  assert.equal(loopSeconds(2, 3, 90), (6 * 60) / 90);
+});
+
+test('importToBeats snaps a parsed (seconds) track to the grid', () => {
+  // 120 BPM, 1/16 grid (0.25 beat). A note at 0.26s ≈ 0.52 beats → snaps to 0.5.
+  const beats = importToBeats([{ time: 0.26, duration: 0.24, midi: 60, velocity: 0.6 }], 120, 0.25);
+  assert.equal(beats[0].beat, 0.5);
+  assert.ok(beats[0].len >= 0.25, `len ${beats[0].len}`); // min one grid cell
+  assert.equal(beats[0].midi, 60);
+  assert.equal(beats[0].vel, 0.6);
+});
 
 test('parseMidi splits named tracks and still merges notes', () => {
   const { notes, tracks } = parseMidi(SMF2.buffer);

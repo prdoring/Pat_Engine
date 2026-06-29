@@ -14,9 +14,12 @@ export function normalizeSong(song) {
   return song;
 }
 
-/** A fresh, empty song with the engine's default headroom + crossfade. */
+/** A fresh, empty song with default tempo grid + engine headroom/crossfade. */
 export function newSong() {
-  return { stems: [], intensity: {}, vibeDocs: {}, masterLevel: 0.35, fadeSeconds: 1.5 };
+  return {
+    bpm: 120, beatsPerBar: 4, bars: 4, grid: 0.25,
+    stems: [], intensity: {}, vibeDocs: {}, masterLevel: 0.35, fadeSeconds: 1.5,
+  };
 }
 
 /** A stem name not already used in the song, derived from `base` ("lead", "lead2"…). */

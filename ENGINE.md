@@ -160,9 +160,14 @@ is layers (`sine`/`square`/`sawtooth`/`triangle`/`file`/`noise`) + envelope/LFO/
 (render a `.mid` score through the voice). Scalar synth fields accept `[min,max]` for per-trigger
 randomization. `range:0` = UI (non-positional).
 
-**Music** (`data/music.json` → `{ songs: { id: song } }`): a `song` is
-`{ stems:[{name,sound,gain}], intensity:{ <tier>: { <stemName>: 0..1 } }, masterLevel?, fadeSeconds? }`.
-Each stem's `sound` is a `loop:true` + `synth.midi` sound; tiers map stem → absolute gain (absent = silent).
+**Music** (`data/music.json` → `{ songs: { id: song } }`): a `song` is `{ bpm, beatsPerBar, bars, grid,
+stems:[{name,sound,gain,notes:[{beat,len,midi,vel}]}], intensity:{ <tier>: { <stemName>: 0..1 } },
+masterLevel?, fadeSeconds? }`. Each stem's `sound` is a `loop:true` synth (its timbre); its `notes` are the
+editable pattern in beats (played via the engine's inline-notes loop path — `beatsToSeconds` + the shared
+bar loop length). A stem with no `notes` falls back to its sound's `synth.midi.{file,track}` (.mid). Tiers
+map stem → absolute gain (absent = silent). Engine: `SoundManager.updateMidiLoopNotes(handle, notes, loopLen)`
+live-swaps a playing loop's notes (no restart) and `playSynthNote(synth, midi)` auditions a pitch;
+`MusicDirector.updateStemNotes`/`swapStemSound` (swap a stem's instrument in phase, no restart)/`seekTo(phase)` (move the whole song's playhead, no restart)/`getPhase` drive the editor.
 
 **Sequences** (`{ "sequences": { id: { positional?, steps:[...] } } }`): steps are
 `sfx`/`vfx`/`loopStart`/`loopStop`/`signal` with `delay` + type fields.
@@ -198,7 +203,9 @@ Tab host (`editor.html`) lazy-loads `art`, `vfx`, `sequences`, `soundboard` edit
 sub-tabs: **Sounds** + **Music**). All save through `POST /api/save-data` (allowlist + `.backups/` rotation).
 Art/VFX/Sequence editors are driven by the manifest, so a new project repoints the manifest instead of
 editing editor source. The soundboard edits sfx.json (incl. vibrato/filter/distortion/noise/MIDI, `[R]`
-range toggles for `[min,max]`); the Music sub-tab is a mixing console for `data/music.json` — song picker +
-new-song, `masterLevel`/`fadeSeconds`,
-stem add/remove/reorder/rename with sound + MIDI-track assignment, and vibe scenes (rename/delete/docs +
-per-stem faders) — auditioned live through `MusicDirector` (track reassignment writes through to sfx.json).
+range toggles for `[min,max]`); the Music sub-tab is a mixing console + **piano-roll MIDI editor** for
+`data/music.json` — song picker + new-song, tempo grid (`bpm`/`bars`/`beatsPerBar`/`grid`),
+`masterLevel`/`fadeSeconds`, stem add/remove/reorder/rename + instrument assignment, vibe scenes
+(rename/delete/docs + per-stem faders), and a click-a-stem piano roll (`editors/pianoRoll.js`, note ops in
+`editors/midiModel.js`) to draw/move/resize/delete notes — auditioned live through `MusicDirector`
+(note edits swap in with no restart, in sync; `.mid` files import-to-seed a pattern).

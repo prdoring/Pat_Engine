@@ -432,12 +432,20 @@ music.setIntensity('triumph');                     // crossfade — tiers map st
 music.stop();                                      // in scene exit()
 ```
 
-Each stem is a `loop:true` + `synth.midi` sound (its timbre + which `track` of one shared multi-track
-`.mid`). Stems only start once their score is parsed — gate `startSong` on `sound.loadMidi(path)`
-(resume() preloads it async). Assemble songs in the **Music** sub-tab (under **Soundboard**) — a mixing
-console: add/remove/reorder/rename stems, assign each stem's sound + MIDI track, set mix headroom (`masterLevel`) and
-crossfade (`fadeSeconds`), and author each vibe's per-stem faders (with rename/delete + a description).
-The example wires this in `GardenScene` (population → `calm`/`lively`/`playful`, a pairing punches `triumph`).
+Each stem pairs a `sound` (its instrument timbre — a `loop:true` synth sound, edited in the Sounds
+sub-tab) with a **note pattern**. The pattern is editable JSON authored against a song tempo grid
+(`song.bpm`/`bars`/`beatsPerBar`/`grid`): `stem.notes:[{beat,len,midi,vel}]`. The engine plays it via
+the inline-notes loop path — `startSong` hands each stem `{notes (beats→seconds), loopLen}` so every
+stem loops to the same bar grid in lock-step. A stem with **no** `notes` falls back to its sound's
+`synth.midi.{file,track}` (legacy `.mid`-driven path; gate that on `sound.loadMidi(path)`). Live note
+editing uses `music.updateStemNotes(name, beatsNotes, song)` (swaps the loop's notes with no restart —
+stays in sync), `music.swapStemSound(name, soundId, song)` (swap a stem's instrument in phase, no song
+restart), `music.seekTo(phase)` (move the playhead, no restart), and `music.getPhase()` (0..1, for an
+editor playhead). Assemble + edit songs in the
+**Music** sub-tab (under **Soundboard**): a mixing console (add/remove/reorder/rename stems, mix
+headroom/crossfade, per-vibe faders) **plus a piano-roll MIDI editor below the mixer** — click a stem,
+draw/move/resize/delete notes on a pitch×time grid, live as the song plays. `.mid` files are an optional
+import-to-seed. The example wires `GardenScene` (population → `calm`/`lively`/`playful`, a pairing punches `triumph`).
 
 ### Camera — `engine/core/Camera.js`
 

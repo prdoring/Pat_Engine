@@ -411,8 +411,9 @@ export class SoundManager {
     // Synth loop path
     if (config.synth) {
       if (!this.ctx) return null;
-      // A synth carrying a MIDI tune loops the tune (note scheduler), not a sustained voice.
-      if (this._midiPath(config.synth)) return this._startMidiLoop(config, worldX, worldY, opts);
+      // A synth carrying a MIDI tune — or handed an inline `opts.notes` pattern (editable JSON
+      // path) — loops the tune through the note scheduler, not a sustained voice.
+      if (opts.notes || this._midiPath(config.synth)) return this._startMidiLoop(config, worldX, worldY, opts);
       return this._startSynthLoop(config, worldX, worldY, opts);
     }
 
@@ -1190,6 +1191,20 @@ export class SoundManager {
   }
 
   /**
+   * Audition a single synth voice at a MIDI pitch — for an editor previewing notes. Renders
+   * one note through `synth`'s timbre (its layers/filter/etc.); generic, no game knowledge.
+   */
+  playSynthNote(synth, midi, { volume = 0.8, duration = 0.45, category } = {}) {
+    this.resume();
+    if (!synth || !this.ctx) return;
+    const setup = this._midiVoiceSetup(synth);
+    const out = this.ctx.createGain();
+    out.gain.value = volume;
+    out.connect((this.categoryGains && this.categoryGains[category]) || this.masterGain);
+    this._renderMidiNote(setup, { midi, duration, velocity: 0.9 }, 1.0, out, this.ctx.currentTime, false);
+  }
+
+  /**
    * Looping MIDI tune (`loop:true` + `synth.midi`): a setInterval look-ahead scheduler
    * keeps the next tune iteration scheduled ~LOOKAHEAD ahead on the audio clock, pruning
    * finished iterations. Registered in `loopHandles` like any loop; `stopLoop` clears the
@@ -1197,9 +1212,19 @@ export class SoundManager {
    * chain) so updateLoop/fadeOut behave like other loops.
    */
   _startMidiLoop(config, worldX, worldY, opts = {}) {
-    const midiData = this.midiData.get(this._midiPath(config.synth));
-    if (!midiData?.notes?.length) { this.loadMidi(this._midiPath(config.synth)); return null; }
-    const tuneDuration = Math.max(0.1, midiData.duration);
+    // Notes come from either an inline `opts.notes` pattern (editable JSON path) or a parsed
+    // `.mid` file the sound points at. `notes`/`tuneDuration` are `let` so the scheduler can
+    // live-swap them (see updateMidiLoopNotes) without restarting the loop.
+    let notes, tuneDuration;
+    if (opts.notes) {
+      notes = opts.notes;
+      tuneDuration = Math.max(0.1, opts.loopLen ?? this._notesDuration(notes));
+    } else {
+      const midiData = this.midiData.get(this._midiPath(config.synth));
+      if (!midiData?.notes?.length) { this.loadMidi(this._midiPath(config.synth)); return null; }
+      tuneDuration = Math.max(0.1, midiData.duration);
+      notes = this._midiNotesFor(config.synth, midiData);
+    }
 
     const range = opts.range || config.range;
     const volume = (opts.volume !== undefined ? opts.volume : 1) * config.volume;
@@ -1235,7 +1260,6 @@ export class SoundManager {
     // nodes → frame hitches + glitches), we only build the few notes that start within the next
     // LOOKAHEAD, on a frequent timer. Far fewer live nodes; smooth.
     const setup = this._midiVoiceSetup(config.synth);
-    const notes = this._midiNotesFor(config.synth, midiData);
 
     const handle = this._nextHandle++;
     const loop = {
@@ -1243,11 +1267,33 @@ export class SoundManager {
       worldX, worldY, range, baseVolume: volume, positional,
       configVolume: config.volume, category: config.category,
       _voices: [], _iterStart: startAt, _idx: 0, _tuneDuration: tuneDuration, _timer: null,
+      _pendingNotes: null, _pendingLoopLen: null, _notes: notes, _timeScale: setup.timeScale,
     };
+
+    // Joining a song mid-loop (a phase-aligned stem swap passes a startAt in the past): fast-
+    // forward the scheduler past notes that already played this iteration so we don't burst
+    // them all at the join — the new voice picks up in phase with the still-playing stems.
+    if (startAt < now && notes.length) {
+      let guard = notes.length * 4;
+      while (guard-- > 0) {
+        if (loop._idx >= notes.length) { loop._iterStart += tuneDuration; loop._idx = 0; }
+        if (loop._iterStart + notes[loop._idx].time * setup.timeScale >= now) break;
+        loop._idx++;
+      }
+    }
 
     const LOOKAHEAD = 0.5; // seconds of notes scheduled ahead of the clock
     const MAX_PER_TICK = 64; // bound work per tick (catch-up safety, prevents bursts)
     const schedule = () => {
+      // Live edit: swap in a pending notes/length update at the top of the tick. Keeping
+      // _iterStart/_idx means playback continues in phase (multi-stem songs stay in sync).
+      if (loop._pendingNotes) {
+        notes = loop._pendingNotes;
+        loop._notes = notes;
+        loop._pendingNotes = null;
+        if (loop._pendingLoopLen != null) { tuneDuration = loop._pendingLoopLen; loop._tuneDuration = tuneDuration; loop._pendingLoopLen = null; }
+        if (loop._idx > notes.length) loop._idx = 0; // clamp if the new pattern is shorter
+      }
       if (!notes.length) return;
       const ctxNow = this.ctx.currentTime;
       const horizon = ctxNow + LOOKAHEAD;
@@ -1266,6 +1312,53 @@ export class SoundManager {
 
     this.loopHandles.set(handle, loop);
     return handle;
+  }
+
+  /** Total length (seconds) spanned by a seconds-based note list. */
+  _notesDuration(notes) {
+    return (notes || []).reduce((m, n) => Math.max(m, (n.time || 0) + (n.duration || 0)), 0);
+  }
+
+  /**
+   * Live-swap a running MIDI loop's notes (and optionally loop length) WITHOUT restarting —
+   * the scheduler picks them up on its next tick, preserving phase so multi-stem songs stay
+   * in sync. `notes` is a seconds-based list like the parser emits. Returns false if `handle`
+   * isn't a running MIDI loop.
+   */
+  updateMidiLoopNotes(handle, notes, loopLen) {
+    const loop = this.loopHandles.get(handle);
+    if (!loop || !loop._timer) return false; // not a (running) MIDI loop
+    loop._pendingNotes = Array.isArray(notes) ? notes : [];
+    loop._pendingLoopLen = (typeof loopLen === 'number' && loopLen > 0)
+      ? loopLen
+      : Math.max(0.1, this._notesDuration(loop._pendingNotes));
+    return true;
+  }
+
+  /**
+   * Seek a running MIDI loop to `phase` (0..1) — repositions the scheduler IN PLACE (no
+   * restart, so the loop's gain/fade is preserved): stops the notes already scheduled ahead
+   * and re-aligns `_iterStart`/`_idx` so playback continues from the new position.
+   */
+  seekMidiLoop(handle, phase) {
+    const loop = this.loopHandles.get(handle);
+    if (!loop || !loop._timer || !loop._notes) return false;
+    const now = this.ctx.currentTime;
+    for (const v of loop._voices) {
+      (v.oscillators || []).forEach(o => { try { o.stop(); } catch {} });
+      (v.sources || []).forEach(s => { try { s.stop(); } catch {} });
+    }
+    loop._voices = [];
+    loop._iterStart = now - Math.max(0, Math.min(1, phase)) * loop._tuneDuration;
+    loop._idx = 0;
+    const notes = loop._notes, ts = loop._timeScale || 1;
+    let guard = notes.length * 4;
+    while (guard-- > 0 && notes.length) {
+      if (loop._idx >= notes.length) { loop._iterStart += loop._tuneDuration; loop._idx = 0; }
+      if (loop._iterStart + notes[loop._idx].time * ts >= now) break;
+      loop._idx++;
+    }
+    return true;
   }
 
   // ─── Internal: Positional Audio Chain ─────────────────────────

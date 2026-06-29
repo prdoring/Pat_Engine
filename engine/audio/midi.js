@@ -183,3 +183,48 @@ export function parseMidi(arrayBuffer) {
   const duration = notes.reduce((m, n) => Math.max(m, n.time + n.duration), 0);
   return { notes, duration, tracks };
 }
+
+// ─── Beat ⇄ seconds conversions (for editable, tempo-based note patterns) ───
+// A song authored in the editor stores notes in BEATS (`{beat,len,midi,vel}`) against a
+// song tempo + grid; the synth engine always plays in SECONDS (`{time,duration,midi,velocity}`).
+// These pure converters are the only seam between the two, shared by the player + editor.
+
+/** Beats `{beat,len,midi,vel}` → engine seconds `{time,duration,midi,velocity}` at `bpm`. */
+export function beatsToSeconds(notes, bpm) {
+  const k = 60 / (bpm || 120);
+  return (notes || []).map(n => ({
+    time: (n.beat || 0) * k,
+    duration: Math.max(0.02, (n.len ?? n.duration ?? 0) * k),
+    midi: n.midi,
+    velocity: n.vel ?? n.velocity ?? 0.8,
+  }));
+}
+
+/** Engine seconds `{time,duration,midi,velocity}` → beats `{beat,len,midi,vel}` at `bpm`. */
+export function secondsToBeats(notes, bpm) {
+  const k = (bpm || 120) / 60;
+  return (notes || []).map(n => ({
+    beat: (n.time || 0) * k,
+    len: Math.max(0.001, (n.duration || 0) * k),
+    midi: n.midi,
+    vel: n.velocity ?? n.vel ?? 0.8,
+  }));
+}
+
+/** Loop length in seconds for a song's bar grid. */
+export function loopSeconds(bars = 4, beatsPerBar = 4, bpm = 120) {
+  return (bars * beatsPerBar) * (60 / (bpm || 120));
+}
+
+/** Parsed (seconds) track notes → beats, snapped to `grid` (in beats). For .mid import. */
+export function importToBeats(parsedNotes, bpm, grid = 0.25) {
+  const k = (bpm || 120) / 60;
+  const snap = (b) => (grid > 0 ? Math.round(b / grid) * grid : b);
+  const minLen = grid > 0 ? grid : 0.25;
+  return (parsedNotes || []).map(n => ({
+    beat: Math.max(0, snap((n.time || 0) * k)),
+    len: Math.max(minLen, snap((n.duration || 0) * k)),
+    midi: n.midi,
+    vel: n.velocity ?? 0.8,
+  }));
+}

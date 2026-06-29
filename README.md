@@ -7,7 +7,8 @@ hard-won, data-driven creative pipeline:
 - **VFX** — a data-driven effects interpreter + editor (phased effects, trails, beams).
 - **Sequences** — an FX-sequence runner + timeline editor that orchestrate **sound + VFX + state
   changes together** from JSON.
-- **Sound** — a Web-Audio synth/sample engine (incl. MIDI tunes + adaptive music) + soundboard/music editors.
+- **Sound** — a Web-Audio synth/sample engine (incl. MIDI tunes + adaptive music) + a soundboard and a
+  music editor with a piano-roll MIDI editor (edit a stem's notes live while the song plays).
 - **Editors** — a unified editor suite with a file-based save/backup pipeline.
 - **Shot harness** — render predefined game states (`data/shots.json`) to images for agentic dev/review.
 
