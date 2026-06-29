@@ -22,11 +22,11 @@ const ROW_H = 12;   // pitch row height
 const EDGE = 6;     // right-edge resize grab zone (px)
 const BLACK = new Set([1, 3, 6, 8, 10]); // semitones that are black keys
 
-export function createPianoRoll(container, { onEdit = () => {}, getPhase = () => null, previewNote = () => {}, onSeek = () => {} } = {}) {
+export function createPianoRoll(container, { onEdit = () => {}, onEditCommit = () => {}, getPhase = () => null, previewNote = () => {}, onSeek = () => {} } = {}) {
   let pattern = [];
   let song = { bpm: 120, bars: 4, beatsPerBar: 4, grid: 0.25 };
   let zoom = 1, pxPerBeat = 40, scrollX = 0, scrollY = 0;
-  let playing = false, selected = null, drag = null, raf = null, staticDirty = true, scrubPhase = null;
+  let playing = false, selected = null, drag = null, raf = null, staticDirty = true, gestureDirtied = false;
 
   injectStyle();
   const wrap = el('div', 'pr-wrap');
@@ -49,6 +49,7 @@ export function createPianoRoll(container, { onEdit = () => {}, getPhase = () =>
   const midiAt = (y) => PITCH_MAX - Math.floor((y - TOP + scrollY) / ROW_H);
   const miniX = (b) => GUTTER + (b / lb()) * (cssW() - GUTTER);
   const miniBeat = (x) => ((x - GUTTER) / (cssW() - GUTTER)) * lb();
+  const playheadX = () => { const ph = getPhase(); return ph == null ? null : xAt(ph * lb()); };
   const opts = () => ({ grid: song.grid, loopBeats: lb() });
 
   function recomputePx() { pxPerBeat = ((cssW() - GUTTER) / lb()) * zoom; }
@@ -157,11 +158,6 @@ export function createPianoRoll(container, { onEdit = () => {}, getPhase = () =>
       const x = xAt(ph * lb());
       if (x >= GUTTER && x <= cssW()) { ctx.strokeStyle = '#e07b3a'; ctx.beginPath(); ctx.moveTo(x, MINI); ctx.lineTo(x, TOP + mainH() + VEL_H); ctx.stroke(); }
     }
-    // scrub marker while dragging the ruler
-    if (scrubPhase != null) {
-      const sx = xAt(scrubPhase * lb());
-      if (sx >= GUTTER && sx <= cssW()) { ctx.strokeStyle = '#f4e2a0'; ctx.setLineDash([3, 3]); ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(sx, MINI); ctx.lineTo(sx, TOP + mainH()); ctx.stroke(); ctx.setLineDash([]); }
-    }
   }
 
   function draw() { staticDirty = true; paint(); }
@@ -184,20 +180,23 @@ export function createPianoRoll(container, { onEdit = () => {}, getPhase = () =>
   function onDown(e) {
     if (e.button === 2) return;
     const { x, y } = pos(e);
-    if (y < MINI) { drag = { mode: 'mini' }; scrollToMiniBeat(x); arm(); return; }         // minimap → scroll view
-    if (y < TOP) { drag = { mode: 'seek' }; scrubPhase = clamp01(beatAt(x) / lb()); onSeek(scrubPhase); draw(); arm(); return; } // ruler → seek
+    if (y < MINI) { drag = { mode: 'miniseek', phase: clamp01(miniBeat(x) / lb()) }; scrollToMiniBeat(x); onSeek(drag.phase, false); arm(); return; } // minimap → move playhead + follow
+    if (y < TOP) { drag = { mode: 'seek', phase: clamp01(beatAt(x) / lb()) }; onSeek(drag.phase, false); arm(); return; } // ruler → move playhead
     if (x < GUTTER) { if (y <= TOP + mainH()) previewNote(midiAt(y)); return; }             // piano keys → audition
+    gestureDirtied = false;
     const vy = TOP + mainH();
-    if (y >= vy) { const n = nearestByX(x); if (n) { selected = n; drag = { mode: 'vel', note: n }; applyVel(n, y); onEdit(pattern); draw(); arm(); } return; }
+    if (y >= vy) { const n = nearestByX(x); if (n) { selected = n; drag = { mode: 'vel', note: n }; applyVel(n, y); gestureDirtied = true; onEdit(pattern); draw(); arm(); } return; }
 
     const hit = noteAt(x, y);
+    const phx = playheadX();
+    if (!hit && phx != null && Math.abs(x - phx) <= 3) { drag = { mode: 'seek', phase: clamp01(beatAt(x) / lb()) }; onSeek(drag.phase, false); arm(); return; } // grab the playhead
     if (hit) {
       selected = hit;
       if (e.altKey) { drag = { mode: 'velnote', note: hit, startY: y, startVel: hit.vel ?? 0.8 }; }
       else { const nx = xAt(hit.beat), nw = Math.max(2, hit.len * pxPerBeat); if (x > nx + nw - EDGE) drag = { mode: 'resize', note: hit }; else { drag = { mode: 'move', note: hit, grabBeats: beatAt(x) - hit.beat }; previewNote(hit.midi); } }
     } else {
       const n = addNote(pattern, { beat: beatAt(x), midi: midiAt(y), len: song.grid || 0.25 }, opts());
-      selected = n; drag = { mode: 'draw', note: n }; previewNote(n.midi); onEdit(pattern);
+      selected = n; drag = { mode: 'draw', note: n }; gestureDirtied = true; previewNote(n.midi); onEdit(pattern);
     }
     draw(); arm();
   }
@@ -205,24 +204,24 @@ export function createPianoRoll(container, { onEdit = () => {}, getPhase = () =>
   function onMove(e) {
     if (!drag) return;
     const { x, y } = pos(e); const n = drag.note;
-    if (drag.mode === 'mini') { scrollToMiniBeat(x); return; }
-    if (drag.mode === 'seek') { scrubPhase = clamp01(beatAt(x) / lb()); draw(); return; }
+    if (drag.mode === 'miniseek') { drag.phase = clamp01(miniBeat(x) / lb()); scrollToMiniBeat(x); onSeek(drag.phase, false); return; }
+    if (drag.mode === 'seek') { drag.phase = clamp01(beatAt(x) / lb()); onSeek(drag.phase, false); return; }
     if (drag.mode === 'move') { const pm = n.midi; moveNote(pattern, n, (beatAt(x) - drag.grabBeats) - n.beat, midiAt(y) - n.midi, opts()); if (n.midi !== pm) previewNote(n.midi); }
     else if (drag.mode === 'resize' || drag.mode === 'draw') { resizeNote(n, beatAt(x) - n.beat - n.len, opts()); }
     else if (drag.mode === 'vel') { applyVel(n, y); }
     else if (drag.mode === 'velnote') { setVelocity(n, drag.startVel + (drag.startY - y) / 120); }
+    gestureDirtied = true;
     onEdit(pattern); draw();
   }
 
   function onUp() {
     window.removeEventListener('mousemove', onMove);
     window.removeEventListener('mouseup', onUp);
-    if (drag?.mode === 'seek' && scrubPhase != null) { onSeek(scrubPhase); scrubPhase = null; drag = null; draw(); return; }
-    if (drag?.mode === 'mini') { drag = null; return; }
-    if (drag) { drag = null; onEdit(pattern); draw(); }
+    if (drag?.mode === 'seek' || drag?.mode === 'miniseek') { onSeek(drag.phase, true); drag = null; return; }
+    if (drag) { drag = null; if (gestureDirtied) { onEdit(pattern); onEditCommit(); } draw(); }
   }
 
-  function onContext(e) { e.preventDefault(); const { x, y } = pos(e); const n = noteAt(x, y); if (n) { deleteNote(pattern, n); if (selected === n) selected = null; onEdit(pattern); draw(); } }
+  function onContext(e) { e.preventDefault(); const { x, y } = pos(e); const n = noteAt(x, y); if (n) { deleteNote(pattern, n); if (selected === n) selected = null; onEdit(pattern); onEditCommit(); draw(); } }
 
   function onWheel(e) {
     e.preventDefault();
@@ -235,10 +234,27 @@ export function createPianoRoll(container, { onEdit = () => {}, getPhase = () =>
   function onKey(e) {
     if (!wrap.offsetParent || isModalOpen()) return;
     if (/^(input|textarea|select)$/i.test(e.target?.tagName || '')) return;
-    if ((e.key === 'Delete' || e.key === 'Backspace') && selected) { e.preventDefault(); deleteNote(pattern, selected); selected = null; onEdit(pattern); draw(); }
+    if ((e.key === 'Delete' || e.key === 'Backspace') && selected) { e.preventDefault(); deleteNote(pattern, selected); selected = null; onEdit(pattern); onEditCommit(); draw(); }
+  }
+
+  // Hover cursor by region: the minimap/ruler + the playhead are drag-to-seek (↔); a note
+  // body moves, its right edge resizes; the keys preview; the velocity lane drags vertically.
+  function onHover(e) {
+    if (drag) return;
+    const { x, y } = pos(e);
+    let cur = 'crosshair';
+    if (y < TOP) cur = 'ew-resize';
+    else if (y <= TOP + mainH()) {
+      const phx = playheadX();
+      if (phx != null && Math.abs(x - phx) <= 3) cur = 'ew-resize';
+      else if (x < GUTTER) cur = 'pointer';
+      else { const n = noteAt(x, y); if (n) { const nw = Math.max(2, n.len * pxPerBeat); cur = (x > xAt(n.beat) + nw - EDGE) ? 'ew-resize' : 'move'; } }
+    } else cur = 'ns-resize';
+    if (canvas.style.cursor !== cur) canvas.style.cursor = cur;
   }
 
   canvas.addEventListener('mousedown', onDown);
+  canvas.addEventListener('mousemove', onHover);
   canvas.addEventListener('contextmenu', onContext);
   canvas.addEventListener('wheel', onWheel, { passive: false });
   window.addEventListener('keydown', onKey);

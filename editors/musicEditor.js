@@ -27,12 +27,17 @@ let workingSongs = {};      // editable deep clone of MUSIC_SONGS
 let currentSongId = null;
 let playing = false;        // song loops exist
 let paused = false;         // audio context suspended (true pause — resumes in place)
-let playBtnEl = null;       // transport button (updated in place on pause/resume)
+let playheadPhase = 0;      // editor-owned playhead position 0..1 (drives play start + the visual head)
+let seeking = false;        // true while scrubbing the ruler (freezes head tracking)
+let playBtns = [];          // every transport play/pause button (updated together)
 let activeTier = null;      // selected vibe scene (null = "All", the base mix)
 let soloStem = null;        // transient solo
 const muted = new Set();    // transient mutes
 let selectedStem = null;    // stem whose notes the piano roll edits
 let pianoRoll = null;       // persistent piano-roll instance (survives buildUI re-renders)
+let undoStack = [];         // each entry is a workingSongs snapshot; top = current state
+let redoStack = [];
+let undoBtnEl = null, redoBtnEl = null;
 
 const TWEAK_FADE = 0.18; // quick fade while dragging a fader
 const SCENE_FADE = 0.9;  // musical fade when switching vibes
@@ -52,30 +57,64 @@ export function mount(el) {
   saveManager = new SaveManager('music.json');
   saveManager.onDirtyChange(dirty => window.editorSetUnsaved?.('music', dirty));
 
-  window.addEventListener('keydown', onSpaceKey);
+  undoStack = [snap()]; redoStack = [];
+  window.addEventListener('keydown', onMusicKey);
 
   injectStyle();
   buildUI();
 }
 
-// Space toggles play/pause — but only when the Music tab is visible and you're not typing.
-function onSpaceKey(e) {
-  if (e.code !== 'Space' || e.repeat) return;
+// Keyboard: Space = play/pause, Ctrl+Z/Y (or Ctrl+Shift+Z) = undo/redo, ← = playhead to start.
+// Only when the Music tab is visible, no modal is open, and you're not typing in a field.
+function onMusicKey(e) {
+  if (e.repeat && e.code !== 'Space') { /* allow held arrows? no */ }
   if (isModalOpen()) return;
   if (!container || container.offsetParent === null) return;
   if (/^(input|textarea|select)$/i.test(e.target?.tagName || '')) return;
-  e.preventDefault();
-  toggleTransport();
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || e.key === 'Y')) { e.preventDefault(); redo(); return; }
+  if (e.ctrlKey || e.metaKey) return;
+  if (e.code === 'Space' && !e.repeat) { e.preventDefault(); toggleTransport(); return; }
+  if (e.key === 'ArrowLeft') { e.preventDefault(); setPlayhead(0); return; }
 }
 
 export function unmount() {
   try { music?.stop({ fadeOut: 0.1 }); } catch {}
   try { pianoRoll?.destroy(); } catch {}
-  window.removeEventListener('keydown', onSpaceKey);
+  window.removeEventListener('keydown', onMusicKey);
   pianoRoll = null;
   playing = false;
   container = null;
 }
+
+// ─── Undo / redo (workingSongs snapshots) ──────────────────────────────────
+function snap() { return JSON.parse(JSON.stringify(workingSongs)); }
+function commitUndo() { undoStack.push(snap()); if (undoStack.length > 80) undoStack.shift(); redoStack = []; updateUndoBtns(); }
+function updateUndoBtns() { if (undoBtnEl) undoBtnEl.disabled = undoStack.length <= 1; if (redoBtnEl) redoBtnEl.disabled = redoStack.length === 0; }
+function undo() { if (undoStack.length <= 1) return; redoStack.push(undoStack.pop()); restoreState(undoStack[undoStack.length - 1]); }
+function redo() { if (!redoStack.length) return; const s = redoStack.pop(); undoStack.push(s); restoreState(s); }
+function restoreState(s) {
+  const name = selectedStem?.name;
+  workingSongs = JSON.parse(JSON.stringify(s));
+  if (!workingSongs[currentSongId]) currentSongId = Object.keys(workingSongs)[0] || null;
+  selectedStem = (currentSongId && name) ? (song()?.stems.find(st => st.name === name) || null) : null;
+  if (activeTier && !song()?.intensity?.[activeTier]) activeTier = null;
+  saveManager.markDirty();
+  if (playing) resyncIfPlaying();
+  buildUI();
+}
+
+// ─── Playhead ──────────────────────────────────────────────────────────────
+function setPlayhead(ph, committed = true) {
+  playheadPhase = Math.max(0, Math.min(0.9999, ph));
+  // Reposition the loops whenever the song is live — including while paused (suspended): the
+  // seek is timeline-relative, so it takes effect when the context resumes (otherwise resume
+  // would continue from the old pause position and the playhead would jump back).
+  if (committed) { seeking = false; if (playing) music.seekTo(playheadPhase); }
+  else { seeking = true; }
+  pianoRoll?.redraw();
+}
+function stepPlayhead(dir) { setPlayhead(playheadPhase + dir / Math.max(1, song()?.bars || 1)); }
 
 export function save() { doSave(); }
 export function isDirty() { return saveManager?.isDirty() ?? false; }
@@ -125,13 +164,15 @@ async function play() {
   soundManager.resume();
   await loadPromise;
   music.startSong(song(), { intensity: activeTier || undefined, fadeSeconds: 0.5 });
-  playing = true; paused = false;
+  playing = true; paused = false; seeking = false;
+  if (playheadPhase > 0.0005) music.seekTo(playheadPhase); // start from the playhead, not the top
   applyMix(0.5); // honor any mute/solo
   pianoRoll?.setPlaying(true);
   buildUI();
 }
 
 function stop() {
+  const p = music.getPhase(); if (p != null) playheadPhase = p; // keep the playhead where playback was
   music.stop({ fadeOut: 0.4 });
   playing = false; paused = false;
   pianoRoll?.setPlaying(false);
@@ -150,9 +191,8 @@ function toggleTransport() {
 }
 
 function updateTransportBtn() {
-  if (!playBtnEl) return;
-  playBtnEl.textContent = !playing ? '▶ Play' : paused ? '▶ Resume' : '❚❚ Pause';
-  playBtnEl.className = 'me-play' + (playing && !paused ? ' playing' : '');
+  const label = !playing ? '▶' : paused ? '▶' : '❚❚';
+  for (const b of playBtns) { b.textContent = label; b.className = 'me-tbtn me-tplay' + (playing && !paused ? ' playing' : ''); }
 }
 
 function setScene(tier) {
@@ -174,6 +214,7 @@ function structuralEdit({ resync = true } = {}) {
   muted.clear();
   soloStem = null;
   if (resync) resyncIfPlaying();
+  commitUndo();
   buildUI();
 }
 
@@ -184,6 +225,7 @@ async function addVibe() {
   song().intensity = song().intensity || {};
   song().intensity[name] = song().intensity[name] || {};
   saveManager.markDirty();
+  commitUndo();
   setScene(name);
 }
 
@@ -196,6 +238,7 @@ async function newSongPrompt() {
   activeTier = null; soloStem = null; muted.clear(); selectedStem = null;
   if (playing) stop();
   saveManager.markDirty();
+  commitUndo();
   buildUI();
 }
 
@@ -208,6 +251,7 @@ function selectStem(stem) {
 
 /** Audition a pitch through the selected stem's instrument (piano-key click in the roll). */
 function previewNote(midi) {
+  if (paused) return; // auditioning resumes the audio context — don't un-pause a paused song
   const snd = selectedStem && SOUND_CONFIG[selectedStem.sound];
   if (snd?.synth) soundManager.playSynthNote(snd.synth, midi, { category: snd.category });
 }
@@ -244,6 +288,7 @@ async function importMidiInto(stem) {
   stem.notes = importMidiTrack(data.tracks[ti].notes, song().bpm, song().grid);
   saveManager.markDirty();
   if (playing) music.updateStemNotes(stem.name, stem.notes, song());
+  commitUndo();
   buildUI();
 }
 
@@ -306,6 +351,13 @@ function injectStyle() {
   .me-pr-info{color:#9a875a;font-size:11px;margin-left:auto}
   .me-pr-body{flex:1;min-height:200px}
   .me-play.playing{background:#7a6a30;border-color:#a8902a}
+  .me-transport{display:flex;align-items:center;gap:6px;margin-top:8px;flex-shrink:0}
+  .me-tbtn{min-width:30px;height:28px;padding:0 8px;background:#2a2118;color:#d8cfa8;border:1px solid #5a4a30;border-radius:4px;cursor:pointer;font-size:14px;line-height:1}
+  .me-tbtn:hover:not(:disabled){border-color:#c9a227}
+  .me-tbtn:disabled{opacity:0.35;cursor:default}
+  .me-tplay{background:#3a6a3a;border-color:#5a8a5a;color:#eafaea;min-width:42px;font-weight:600}
+  .me-tplay.playing{background:#7a6a30;border-color:#a8902a}
+  .me-tsep{width:1px;height:20px;background:#4a3c24;margin:0 4px}
   `;
   document.head.appendChild(s);
 }
@@ -313,6 +365,7 @@ function injectStyle() {
 function buildUI() {
   if (!container) return;
   container.innerHTML = '';
+  playBtns = []; undoBtnEl = null; redoBtnEl = null;
   const root = el('div'); root.id = 'me-root';
 
   // ── Top bar: song selector | New | Play/Stop | spacer | Save ──
@@ -332,18 +385,6 @@ function buildUI() {
   const newBtn = el('button', 'me-new', '+ song');
   newBtn.addEventListener('click', newSongPrompt);
   bar.appendChild(newBtn);
-
-  if (currentSongId) {
-    playBtnEl = el('button', 'me-play');
-    playBtnEl.addEventListener('click', toggleTransport);
-    updateTransportBtn();
-    bar.appendChild(playBtnEl);
-    if (playing) {
-      const stopBtn = el('button', 'me-new', '■ stop');
-      stopBtn.addEventListener('click', stop);
-      bar.appendChild(stopBtn);
-    }
-  } else { playBtnEl = null; }
 
   bar.appendChild(el('div', 'me-spacer'));
   bar.appendChild(saveManager.getStatusIndicator());
@@ -395,7 +436,7 @@ function buildUI() {
   // ── Piano roll for the selected stem ──
   root.appendChild(buildPianoRollPanel());
 
-  root.appendChild(el('div', 'me-hint', 'Click a stem to edit. Draw / drag to move·resize, right-click or Delete to remove, Alt-drag (or the velocity lane) for velocity, click the keys to preview. Ctrl+wheel zooms, drag the minimap to scroll, drag the ruler to move the playhead. Space = play/pause. Edits play live.'));
+  root.appendChild(el('div', 'me-hint', 'Click a stem to edit. Draw / drag to move·resize, right-click or Delete to remove, Alt-drag (or the velocity lane) for velocity, click the keys to preview. Ctrl+wheel zooms, drag the minimap to scroll, drag the ruler (or the transport buttons) to move the playhead. Space = play/pause, ← = to start, Ctrl+Z / Ctrl+Y = undo / redo.'));
 
   container.appendChild(root);
 }
@@ -410,6 +451,7 @@ function buildSettingsRow() {
     input.min = String(min); input.max = String(max); input.step = String(step); input.value = String(value);
     const v = el('span', 'v', fmt(value));
     input.addEventListener('input', () => { const val = parseFloat(input.value); v.textContent = fmt(val); onInput(val); saveManager.markDirty(); });
+    input.addEventListener('change', commitUndo); // one undo step per drag (on release)
     wrap.appendChild(input); wrap.appendChild(v);
     return wrap;
   };
@@ -421,7 +463,7 @@ function buildSettingsRow() {
     input.addEventListener('change', () => {
       let val = parseFloat(input.value); if (isNaN(val)) val = min;
       val = Math.max(min, Math.min(max, val)); input.value = String(val);
-      onChange(val); saveManager.markDirty();
+      onChange(val); saveManager.markDirty(); commitUndo();
     });
     wrap.appendChild(input);
     return wrap;
@@ -433,7 +475,7 @@ function buildSettingsRow() {
   row.appendChild(numField('Beats/bar', song().beatsPerBar, 1, 12, val => { song().beatsPerBar = val; pushAllStems(); pianoRoll?.setSong(song()); }));
   const gridWrap = el('div', 'me-knob');
   gridWrap.appendChild(el('label', null, 'Grid'));
-  gridWrap.appendChild(selectEl(GRID_OPTS, String(song().grid), val => { song().grid = parseFloat(val); saveManager.markDirty(); pianoRoll?.setSong(song()); }));
+  gridWrap.appendChild(selectEl(GRID_OPTS, String(song().grid), val => { song().grid = parseFloat(val); saveManager.markDirty(); pianoRoll?.setSong(song()); commitUndo(); }));
   row.appendChild(gridWrap);
 
   // Mix
@@ -466,7 +508,7 @@ function buildVibeEditRow() {
   const doc = el('input', 'doc');
   doc.placeholder = 'Describe this vibe (when it plays, mood)…';
   doc.value = song().vibeDocs?.[activeTier] || '';
-  doc.addEventListener('change', () => { setVibeDoc(song(), activeTier, doc.value); saveManager.markDirty(); });
+  doc.addEventListener('change', () => { setVibeDoc(song(), activeTier, doc.value); saveManager.markDirty(); commitUndo(); });
   row.appendChild(doc);
   return row;
 }
@@ -490,6 +532,7 @@ function channelStrip(stem) {
     setSceneLevel(stem, v); val.textContent = v.toFixed(2);
     saveManager.markDirty(); applyMix();
   });
+  fader.addEventListener('change', commitUndo); // one undo step per fader drag
   fader.addEventListener('click', (e) => e.stopPropagation());
   ch.appendChild(fader);
   ch.appendChild(val);
@@ -527,6 +570,7 @@ function buildPianoRollPanel() {
   if (!selectedStem) {
     head.appendChild(el('span', 'me-pr-hint', 'Select a stem above to edit its notes.'));
     panel.appendChild(head);
+    panel.appendChild(buildTransport());
     return panel;
   }
 
@@ -554,6 +598,7 @@ function buildPianoRollPanel() {
     // Swap just this stem's instrument in phase — no full-song restart. (Legacy .mid songs with
     // no tempo can't phase-align a single stem, so they fall back to a resync.)
     if (playing) { if (song().bpm && music.swapStemSound(stem.name, v, song(), targetGain(stem))) { /* swapped live */ } else resyncIfPlaying(); }
+    commitUndo();
   }));
 
   const imp = el('button', 'me-mini', 'Import .mid…');
@@ -565,6 +610,7 @@ function buildPianoRollPanel() {
     if (stem.notes.length && !await modalConfirm(`Clear all notes in "${stem.name}"?`, { title: 'Clear notes', confirmLabel: 'Clear', danger: true })) return;
     stem.notes = []; saveManager.markDirty();
     if (playing) music.updateStemNotes(stem.name, stem.notes, song());
+    commitUndo();
     buildUI();
   });
   head.appendChild(clr);
@@ -585,10 +631,37 @@ function buildPianoRollPanel() {
 
   const body = el('div', 'me-pr-body');
   panel.appendChild(body);
-  if (!pianoRoll) pianoRoll = createPianoRoll(body, { onEdit: onNotesEdited, getPhase: () => music?.getPhase() ?? null, previewNote, onSeek: (ph) => { if (playing) music.seekTo(ph); } });
+  if (!pianoRoll) pianoRoll = createPianoRoll(body, { onEdit: onNotesEdited, onEditCommit: commitUndo, getPhase, previewNote, onSeek: setPlayhead });
   else body.appendChild(pianoRoll.el);
   pianoRoll.setPattern(stem.notes, song());
   pianoRoll.setPlaying(playing);
 
+  panel.appendChild(buildTransport());
   return panel;
+}
+
+// The playhead the piano roll draws: the live audio position while playing, else the
+// editor's own playhead (so you can move it while stopped). Tracks the audio into playheadPhase.
+function getPhase() {
+  if (!seeking && playing && !paused) { const p = music.getPhase(); if (p != null) playheadPhase = p; }
+  return playheadPhase;
+}
+
+function buildTransport() {
+  const bar = el('div', 'me-transport');
+  const mkBtn = (label, title, onClick) => { const b = el('button', 'me-tbtn', label); b.title = title; b.addEventListener('click', onClick); return b; };
+
+  undoBtnEl = mkBtn('⤺', 'Undo (Ctrl+Z)', undo); undoBtnEl.disabled = undoStack.length <= 1;
+  redoBtnEl = mkBtn('⤻', 'Redo (Ctrl+Y)', redo); redoBtnEl.disabled = redoStack.length === 0;
+  bar.appendChild(undoBtnEl); bar.appendChild(redoBtnEl);
+  bar.appendChild(el('span', 'me-tsep'));
+
+  bar.appendChild(mkBtn('⏮', 'Playhead to start (←)', () => setPlayhead(0)));
+  bar.appendChild(mkBtn('⏪', 'Back one bar', () => stepPlayhead(-1)));
+  const playBtn = el('button', 'me-tbtn me-tplay'); playBtn.title = 'Play / Pause (Space)';
+  playBtn.addEventListener('click', toggleTransport); playBtns.push(playBtn); bar.appendChild(playBtn);
+  bar.appendChild(mkBtn('⏹', 'Stop', stop));
+  bar.appendChild(mkBtn('⏩', 'Forward one bar', () => stepPlayhead(1)));
+  updateTransportBtn();
+  return bar;
 }
