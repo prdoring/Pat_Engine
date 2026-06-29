@@ -23,6 +23,7 @@ let repeatInterval = 500;
 let autoPlayEnabled = false;
 let activeLoopHandle = null;
 let availableSfxFiles = []; // populated from /api/sfx-files
+let availableMidiFiles = []; // populated from /api/midi-files
 
 // DOM refs
 let sidebarListEl = null;
@@ -49,6 +50,12 @@ export function mount(el) {
   fetch('/api/sfx-files')
     .then(r => r.ok ? r.json() : [])
     .then(files => { availableSfxFiles = files; })
+    .catch(() => {});
+
+  // Load available MIDI files for the MIDI-tune picker
+  fetch('/api/midi-files')
+    .then(r => r.ok ? r.json() : [])
+    .then(files => { availableMidiFiles = files; })
     .catch(() => {});
 
   saveManager = new SaveManager('sfx.json');
@@ -545,7 +552,14 @@ function playOnce() {
   soundManager.resume();
   const config = workingData[selectedId];
   if (config.synth) {
-    soundManager.playRawSynth(config.synth, config.volume);
+    // A MIDI-tune sound must have its .mid parsed before it can render — load
+    // (cached after first time) then play the tune through the synth voice.
+    const midiPath = config.synth.midi && (config.synth.midi.file || config.synth.midi);
+    if (midiPath) {
+      soundManager.loadMidi(midiPath).then(() => soundManager.playRawSynth(config.synth, config.volume));
+    } else {
+      soundManager.playRawSynth(config.synth, config.volume);
+    }
   } else {
     soundManager.playUI(selectedId);
   }
@@ -556,7 +570,14 @@ function playLoopSound() {
   soundManager.resume();
   const config = workingData[selectedId];
   if (config.synth) {
-    activeLoopHandle = soundManager.startRawSynthLoop(config.synth, config.volume);
+    const midiPath = config.synth.midi && (config.synth.midi.file || config.synth.midi);
+    if (midiPath) {
+      soundManager.loadMidi(midiPath).then(() => {
+        activeLoopHandle = soundManager.startRawSynthLoop(config.synth, config.volume);
+      });
+    } else {
+      activeLoopHandle = soundManager.startRawSynthLoop(config.synth, config.volume);
+    }
   } else {
     activeLoopHandle = soundManager.startUILoop(selectedId);
   }
@@ -699,6 +720,53 @@ function buildSynthPanel(config) {
                             synth.attack !== undefined ||
                             synth.decay !== undefined;
 
+  // MIDI Tune (instrument-level): attach a .mid so this sound plays a melody through
+  // its synth voice. The layers/envelope/filter below are the instrument's timbre.
+  if (typeof synth.midi === 'string') synth.midi = { file: synth.midi }; // normalize string form
+  const midiGroup = PropertyGroup('MIDI Tune');
+  propsEl.appendChild(midiGroup.el);
+
+  const midiToggle = Toggle('Play MIDI Tune', !!synth.midi, (val) => {
+    if (val) synth.midi = { file: availableMidiFiles[0] || '', transpose: 0 };
+    else delete synth.midi;
+    onParamChange();
+    buildPropertyPanel();
+  });
+  midiGroup.addChild(midiToggle);
+
+  if (synth.midi) {
+    const midiOptions = availableMidiFiles.length > 0
+      ? availableMidiFiles.map(f => ({ value: f, label: f.split('/').pop() }))
+      : [{ value: synth.midi.file || '', label: synth.midi.file ? synth.midi.file.split('/').pop() : '(drop a .mid in assets/MIDI/)' }];
+    const midiSelect = Select('File', midiOptions, synth.midi.file || '', (val) => {
+      synth.midi.file = val;
+      onParamChange();
+    });
+    midiGroup.addChild(midiSelect);
+
+    const transposeInput = NumberSlider('Transpose (semitones)', -24, 24, 1, synth.midi.transpose ?? 0, (val) => {
+      if (val === 0) delete synth.midi.transpose;
+      else synth.midi.transpose = val;
+      onParamChange();
+    });
+    midiGroup.addChild(transposeInput);
+
+    // Track selector for multi-instrument songs — populated once the .mid is parsed.
+    const midiInfo = synth.midi.file ? soundManager.midiData.get(synth.midi.file) : null;
+    if (synth.midi.file && !midiInfo) {
+      soundManager.loadMidi(synth.midi.file).then(() => buildPropertyPanel()); // load, then re-render with tracks
+    } else if (midiInfo?.tracks && midiInfo.tracks.length > 1) {
+      const trackOpts = [{ value: '', label: '(whole song)' },
+        ...midiInfo.tracks.map(t => ({ value: t.name, label: `${t.name} (${t.notes.length})` }))];
+      const trackSelect = Select('Track', trackOpts, synth.midi.track != null ? String(synth.midi.track) : '', (val) => {
+        if (val === '') delete synth.midi.track;
+        else synth.midi.track = val;
+        onParamChange();
+      });
+      midiGroup.addChild(trackSelect);
+    }
+  }
+
   // Envelope (hidden for loops)
   if (!config.loop) {
     const envelope = PropertyGroup('Envelope');
@@ -780,6 +848,79 @@ function buildSynthPanel(config) {
     lfoGroup.addChild(lfoDepth);
   }
 
+  // Vibrato (pitch LFO — depth in cents)
+  const vibratoGroup = PropertyGroup('Vibrato');
+  propsEl.appendChild(vibratoGroup.el);
+
+  const vibratoToggle = Toggle('Enable Vibrato', !!synth.vibrato, (val) => {
+    if (val) synth.vibrato = { freq: 5, depth: 15 };
+    else delete synth.vibrato;
+    onParamChange();
+    buildPropertyPanel();
+  });
+  vibratoGroup.addChild(vibratoToggle);
+
+  if (synth.vibrato) {
+    const vibFreq = NumberSlider('Vibrato Freq (Hz)', 0.1, 12, 0.1, synth.vibrato.freq ?? 5, (val) => {
+      synth.vibrato.freq = val;
+      onParamChange();
+    });
+    vibratoGroup.addChild(vibFreq);
+
+    const vibDepth = NumberSlider('Vibrato Depth (cents)', 0, 100, 1, synth.vibrato.depth ?? 15, (val) => {
+      synth.vibrato.depth = val;
+      onParamChange();
+    });
+    vibratoGroup.addChild(vibDepth);
+  }
+
+  // Tone filter (whole-voice colour)
+  const FILTER_TYPES = [
+    { value: 'lowpass', label: 'Low-pass' },
+    { value: 'highpass', label: 'High-pass' },
+    { value: 'bandpass', label: 'Band-pass' },
+  ];
+  const filterGroup = PropertyGroup('Filter');
+  propsEl.appendChild(filterGroup.el);
+
+  const filterToggle = Toggle('Enable Filter', !!synth.filter, (val) => {
+    if (val) synth.filter = { type: 'lowpass', freq: 2000, q: 1 };
+    else delete synth.filter;
+    onParamChange();
+    buildPropertyPanel();
+  });
+  filterGroup.addChild(filterToggle);
+
+  if (synth.filter) {
+    const filterType = Select('Filter Type', FILTER_TYPES, synth.filter.type || 'lowpass', (val) => {
+      synth.filter.type = val;
+      onParamChange();
+    });
+    filterGroup.addChild(filterType);
+
+    const filterFreq = NumberSlider('Cutoff (Hz)', 20, 12000, 10, synth.filter.freq ?? 2000, (val) => {
+      synth.filter.freq = val;
+      onParamChange();
+    });
+    filterGroup.addChild(filterFreq);
+
+    const filterQ = NumberSlider('Q', 0.1, 12, 0.1, synth.filter.q ?? 1, (val) => {
+      synth.filter.q = val;
+      onParamChange();
+    });
+    filterGroup.addChild(filterQ);
+  }
+
+  // Distortion / drive (waveshaper) — grit for electric-guitar-style leads
+  const driveGroup = PropertyGroup('Distortion');
+  propsEl.appendChild(driveGroup.el);
+  const driveInput = NumberSlider('Drive', 0, 1, 0.01, synth.distortion ?? 0, (val) => {
+    if (val === 0) delete synth.distortion;
+    else synth.distortion = val;
+    onParamChange();
+  });
+  driveGroup.addChild(driveInput);
+
   // Auto-convert simple synths to layered format
   if (!isLayered) {
     synth.layers = [{
@@ -810,7 +951,14 @@ function buildLayersPanel(synth) {
     { value: 'square', label: 'Square' },
     { value: 'sawtooth', label: 'Sawtooth' },
     { value: 'triangle', label: 'Triangle' },
+    { value: 'noise', label: 'Noise' },
     { value: 'file', label: 'File' },
+  ];
+
+  const LAYER_FILTER_TYPES = [
+    { value: 'lowpass', label: 'Low-pass' },
+    { value: 'highpass', label: 'High-pass' },
+    { value: 'bandpass', label: 'Band-pass' },
   ];
 
   synth.layers.forEach((layer, i) => {
@@ -822,16 +970,17 @@ function buildLayersPanel(synth) {
     group.addChild(layerGroup);
 
     const typeSelect = Select('Type', LAYER_TYPES, layer.type || 'sine', (val) => {
-      const wasFile = layer.type === 'file';
+      if (val === layer.type) return;
       layer.type = val;
-      if (val === 'file' && !wasFile) {
-        // Switching to file — clear oscillator props, set file defaults
-        delete layer.freq; delete layer.freqEnd; delete layer.detune;
+      // Clear all type-specific props, then set defaults for the chosen type.
+      delete layer.freq; delete layer.freqEnd; delete layer.detune;
+      delete layer.file; delete layer.playbackRate; delete layer.filter;
+      if (val === 'file') {
         layer.file = availableSfxFiles[0] || '/SFX/';
         layer.playbackRate = 1;
-      } else if (val !== 'file' && wasFile) {
-        // Switching to oscillator — clear file props, set osc defaults
-        delete layer.file; delete layer.playbackRate;
+      } else if (val === 'noise') {
+        // noise has no osc/file props; keeps shared gain
+      } else {
         layer.freq = 440;
       }
       onParamChange();
@@ -855,6 +1004,35 @@ function buildLayersPanel(synth) {
         onParamChange();
       });
       layerGroup.addChild(rateInput);
+    } else if (layer.type === 'noise') {
+      // ── Noise layer fields ── optional colour filter to "tune" the noise
+      const noiseFilterToggle = Toggle('Colour Filter', !!layer.filter, (val) => {
+        if (val) layer.filter = { type: 'bandpass', freq: 1000, q: 1 };
+        else delete layer.filter;
+        onParamChange();
+        buildPropertyPanel();
+      });
+      layerGroup.addChild(noiseFilterToggle);
+
+      if (layer.filter) {
+        const nfType = Select('Filter Type', LAYER_FILTER_TYPES, layer.filter.type || 'bandpass', (val) => {
+          layer.filter.type = val;
+          onParamChange();
+        });
+        layerGroup.addChild(nfType);
+
+        const nfFreq = NumberSlider('Filter Freq (Hz)', 20, 12000, 10, layer.filter.freq ?? 1000, (val) => {
+          layer.filter.freq = val;
+          onParamChange();
+        });
+        layerGroup.addChild(nfFreq);
+
+        const nfQ = NumberSlider('Filter Q', 0.1, 12, 0.1, layer.filter.q ?? 1, (val) => {
+          layer.filter.q = val;
+          onParamChange();
+        });
+        layerGroup.addChild(nfQ);
+      }
     } else {
       // ── Oscillator layer fields ──
       const freqInput = NumberSlider('Frequency (Hz)', 20, 8000, 1, layer.freq || 440, (val) => {
@@ -908,6 +1086,13 @@ function buildLayersPanel(synth) {
     buildPropertyPanel();
   }, 'subtle');
   btnRow.appendChild(addOscBtn.el);
+
+  const addNoiseBtn = Button('+ Noise', () => {
+    synth.layers.push({ type: 'noise', gain: 0.5 });
+    onParamChange();
+    buildPropertyPanel();
+  }, 'subtle');
+  btnRow.appendChild(addNoiseBtn.el);
 
   const addFileBtn = Button('+ File', () => {
     synth.layers.push({ type: 'file', file: availableSfxFiles[0] || '/SFX/', gain: 1.0 });

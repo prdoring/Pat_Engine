@@ -4,9 +4,14 @@
 // frame and routes mouse events to it before the active scene.
 
 export class VolumeControl {
-  constructor(sound, canvas) {
+  // `getInsets` (optional): returns device safe-area margins so the widget clears the
+  // notch / rounded corner. `compact` (default: coarse-pointer / touch): show only the
+  // mute button — phones have hardware volume keys and a permanent 80px slider would
+  // both clutter the corner and collide with a scene's countdown timer.
+  constructor(sound, canvas, { getInsets = null, compact = null } = {}) {
     this.sound = sound;
     this.canvas = canvas;
+    this.getInsets = getInsets;
     this.BTN_SIZE = 22;
     this.SLIDER_W = 80;
     this.SLIDER_H = 6;
@@ -15,17 +20,23 @@ export class VolumeControl {
     this.RIGHT_MARGIN = 10;
     this.dragging = false;
     this.hovered = false;
+    this.compact = compact != null ? compact
+      : (typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches);
   }
 
+  _ins() { const i = this.getInsets && this.getInsets(); return i || { top: 0, right: 0, bottom: 0, left: 0 }; }
+
   _getBtnRect() {
-    const x = this.canvas.width - this.RIGHT_MARGIN - this.BTN_SIZE;
-    return { x, y: this.TOP, w: this.BTN_SIZE, h: this.BTN_SIZE };
+    const i = this._ins();
+    const vw = this.canvas.clientWidth || this.canvas.width; // logical px (HiDPI-safe)
+    const x = vw - this.RIGHT_MARGIN - i.right - this.BTN_SIZE;
+    return { x, y: this.TOP + i.top, w: this.BTN_SIZE, h: this.BTN_SIZE };
   }
 
   _getSliderRect() {
     const btn = this._getBtnRect();
     const x = btn.x - this.PAD - this.SLIDER_W;
-    const y = this.TOP + (this.BTN_SIZE - this.SLIDER_H) / 2;
+    const y = btn.y + (this.BTN_SIZE - this.SLIDER_H) / 2;
     return { x, y, w: this.SLIDER_W, h: this.SLIDER_H };
   }
 
@@ -44,15 +55,20 @@ export class VolumeControl {
   /** @returns {boolean} true if the event was consumed. */
   onMousedown(mx, my) {
     const btn = this._getBtnRect();
+    // Pad the button hit area to a comfortable touch target in compact mode.
+    const pad = this.compact ? 8 : 0;
+    const btnHit = { x: btn.x - pad, y: btn.y - pad, w: btn.w + pad * 2, h: btn.h + pad * 2 };
+    if (this._hit(mx, my, btnHit)) { this.sound.toggleMute(); return true; }
+    if (this.compact) return false; // no slider on touch
     const sl = this._getSliderRect();
     const sliderHit = { x: sl.x - 4, y: sl.y - 8, w: sl.w + 8, h: sl.h + 16 };
-    if (this._hit(mx, my, btn)) { this.sound.toggleMute(); return true; }
     if (this._hit(mx, my, sliderHit)) { this.dragging = true; this._setVolumeFromX(mx); return true; }
     return false;
   }
 
   onMousemove(mx, my) {
     if (this.dragging) { this._setVolumeFromX(mx); return; }
+    if (this.compact) { this.hovered = false; return; }
     const btn = this._getBtnRect();
     const sl = this._getSliderRect();
     const sliderHit = { x: sl.x - 4, y: sl.y - 8, w: sl.w + 8, h: sl.h + 16 };
@@ -69,16 +85,18 @@ export class VolumeControl {
 
     ctx.save();
 
-    // Slider track + fill + thumb
-    ctx.fillStyle = '#1a1a22';
-    ctx.beginPath(); ctx.roundRect(sl.x, sl.y, sl.w, sl.h, 3); ctx.fill();
-    const fillW = muted ? 0 : vol * sl.w;
-    if (fillW > 0) {
-      ctx.fillStyle = '#7cc6a0';
-      ctx.beginPath(); ctx.roundRect(sl.x, sl.y, fillW, sl.h, 3); ctx.fill();
+    // Slider track + fill + thumb (desktop / fine-pointer only — compact = mute button alone)
+    if (!this.compact) {
+      ctx.fillStyle = '#1a1a22';
+      ctx.beginPath(); ctx.roundRect(sl.x, sl.y, sl.w, sl.h, 3); ctx.fill();
+      const fillW = muted ? 0 : vol * sl.w;
+      if (fillW > 0) {
+        ctx.fillStyle = '#7cc6a0';
+        ctx.beginPath(); ctx.roundRect(sl.x, sl.y, fillW, sl.h, 3); ctx.fill();
+      }
+      ctx.fillStyle = muted ? '#444' : '#7cc6a0';
+      ctx.beginPath(); ctx.arc(sl.x + fillW, sl.y + sl.h / 2, 5, 0, Math.PI * 2); ctx.fill();
     }
-    ctx.fillStyle = muted ? '#444' : '#7cc6a0';
-    ctx.beginPath(); ctx.arc(sl.x + fillW, sl.y + sl.h / 2, 5, 0, Math.PI * 2); ctx.fill();
 
     // Speaker icon
     const cx = btn.x + btn.w / 2;

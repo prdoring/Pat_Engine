@@ -62,7 +62,7 @@ test('sfx catalog is structurally valid', () => {
     const layers = cfg.synth.layers || [cfg.synth];
     for (const l of layers) {
       const t = l.type || 'sine';
-      assert.ok(['sine', 'square', 'sawtooth', 'triangle', 'file'].includes(t), `${id} layer type ${t}`);
+      assert.ok(['sine', 'square', 'sawtooth', 'triangle', 'file', 'noise'].includes(t), `${id} layer type ${t}`);
       if (t === 'file') assert.ok(l.file?.startsWith('/SFX/'), `${id} file path`);
     }
   }

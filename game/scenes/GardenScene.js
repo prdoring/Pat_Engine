@@ -22,6 +22,8 @@ export class GardenScene extends Scene {
     this._spawnToggle = 0;
     this.cursorScreen = null; // {sx, sy} latest pointer position
     this.cursor = null;       // {x, y} world-space follower (eases toward cursor)
+    this._musicTier = null;   // active adaptive-music intensity ('calm'|'lively'|'playful')
+    this._musicHoldUntil = 0; // while > now, hold a 'triumph' burst before re-evaluating
   }
 
   enter() {
@@ -34,6 +36,15 @@ export class GardenScene extends Scene {
     // triggers the engine's audio-resume), then start the ambient loop bed.
     sound.resume();
     sequences.play('gardenAmbience');
+
+    // Adaptive music: resume() kicks off async asset loading, so wait for the song's
+    // MIDI score to parse, then start it. setIntensity() (driven by _updateMusic) then
+    // fades layers in/out as the garden gets busier — no restart. loadMidi is idempotent.
+    this._musicTier = 'calm';
+    this._musicHoldUntil = 0;
+    sound.loadMidi('/MIDI/critter-garden.mid').then(() => {
+      this.shared.music.startSong('critterGarden', { intensity: 'calm' });
+    });
 
     camera.x = WORLD.width / 2;
     camera.y = WORLD.height / 2;
@@ -59,10 +70,11 @@ export class GardenScene extends Scene {
   }
 
   exit() {
-    const { sequences, loopMgr, effects } = this.shared;
+    const { sequences, loopMgr, effects, music } = this.shared;
     sequences.play('gardenAmbienceStop');
     sequences.stopAll();
     loopMgr.stopAll();
+    music.stop();
     // Clear trails/effects/debris so they don't leak across scene re-entry.
     effects.stopAll();
   }
@@ -143,6 +155,7 @@ export class GardenScene extends Scene {
     this._resolveBumps();
     this._updatePairs(now);
     this._prune();
+    this._updateMusic(now);
 
     // Per-critter positional hum (demonstrates EntityLoopManager lifecycle).
     loopMgr.beginFrame();
@@ -205,6 +218,13 @@ export class GardenScene extends Scene {
           a.linkedTo = b; b.linkedTo = a;
           a.unlinkAt = b.unlinkAt = now + PAIR_DURATION;
           this.shared.sequences.play('critterPair', { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, entity: a });
+          // A pairing is a little celebration — punch the music to its biggest vibe for
+          // a few seconds (_updateMusic holds it, then settles back to the population tier).
+          if (this.shared.music.isPlaying()) {
+            this.shared.music.setIntensity('triumph');
+            this._musicTier = 'triumph';
+            this._musicHoldUntil = now + 3500;
+          }
           break;
         }
       }
@@ -227,6 +247,20 @@ export class GardenScene extends Scene {
       if (c.linkedTo) { c.linkedTo.state = 'idle'; c.linkedTo.linkedTo = null; }
     }
     this.critters = this.critters.filter(c => !c._remove);
+  }
+
+  // Drive the adaptive music from how busy the garden is: a sparse garden stays 'calm',
+  // a livelier one fades in melody + percussion. A recent pairing holds 'triumph' (see
+  // _updatePairs) until its timer expires, then we settle back to the population tier.
+  _updateMusic(now) {
+    const { music } = this.shared;
+    if (!music.isPlaying() || now < this._musicHoldUntil) return;
+    const n = this.critters.length;
+    const tier = n >= 8 ? 'playful' : n >= 4 ? 'lively' : 'calm';
+    if (tier !== this._musicTier) {
+      this._musicTier = tier;
+      music.setIntensity(tier);
+    }
   }
 
   _livePairs() {
@@ -256,6 +290,8 @@ export class GardenScene extends Scene {
 
   _drawHud() {
     const { ctx, canvas } = this.shared;
+    // Logical height (HiDPI-safe): the backing store is device px, clientHeight stays logical.
+    const vh = canvas.clientHeight || canvas.height;
     ctx.save();
     ctx.fillStyle = PALETTE.hud;
     ctx.font = '16px system-ui, sans-serif';
@@ -263,7 +299,7 @@ export class GardenScene extends Scene {
     ctx.fillText(`Critters: ${this.critters.length}`, 14, 26);
     ctx.fillStyle = PALETTE.hudDim;
     ctx.font = '13px system-ui, sans-serif';
-    ctx.fillText('click ground: spawn  •  click critter: pet  •  space: scare  •  x: despawn  •  WASD/arrows: pan  •  scroll: zoom', 14, canvas.height - 16);
+    ctx.fillText('click ground: spawn  •  click critter: pet  •  space: scare  •  x: despawn  •  WASD/arrows: pan  •  scroll: zoom', 14, vh - 16);
     ctx.restore();
   }
 }

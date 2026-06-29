@@ -34,3 +34,17 @@ export function createMockCamera() {
     getZoom: () => 1,
   };
 }
+
+// Like createMockCtx but counts drawing operations, so a headless test can assert
+// "this render actually emitted draws" without rasterizing pixels. `ctx._draws` is the
+// running count. Used by the shot-harness smoke test.
+export function createRecordingCtx() {
+  const ctx = createMockCtx();
+  ctx._draws = 0;
+  const count = (name, ret) => { ctx[name] = (...a) => { ctx._draws++; return ret; }; };
+  for (const m of ['fill', 'stroke', 'fillRect', 'strokeRect', 'fillText', 'strokeText',
+                   'arc', 'arcTo', 'ellipse', 'rect', 'roundRect', 'lineTo', 'bezierCurveTo',
+                   'quadraticCurveTo']) count(m);
+  ctx.drawImage = () => { ctx._draws++; };
+  return ctx;
+}

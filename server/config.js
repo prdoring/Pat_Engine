@@ -24,6 +24,10 @@ export const DIRS = {
   data: path.join(ROOT, 'data'),
   game: path.join(ROOT, 'game'),
   sfx: path.join(ROOT, 'assets', 'SFX'),
+  midi: path.join(ROOT, 'assets', 'MIDI'),
+  // Web root for top-level static files browsers/crawlers fetch by convention
+  // (favicon.ico, site.webmanifest, apple-touch-icon.png, og-image.png, …).
+  public: path.join(ROOT, 'public'),
   backups: path.join(ROOT, 'data', '.backups'),
 };
 
@@ -39,10 +43,15 @@ export const MIME = {
   '.ogg': 'audio/ogg',
   '.mp3': 'audio/mpeg',
   '.flac': 'audio/flac',
+  '.mid': 'audio/midi',
+  '.midi': 'audio/midi',
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
   '.svg': 'image/svg+xml',
   '.ico': 'image/x-icon',
+  '.webmanifest': 'application/manifest+json',
+  '.txt': 'text/plain',
+  '.xml': 'application/xml',
 };
 
 // Core editable data files always allowed for save.
@@ -52,6 +61,7 @@ const CORE_SAVE_FILES = [
   'vfx.json',
   'sfx.json',
   'fx-sequences.json',
+  'music.json',
 ];
 
 /**

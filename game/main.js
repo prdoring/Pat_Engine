@@ -2,6 +2,7 @@
 import { Game } from '/engine/core/Game.js';
 import { Camera } from '/engine/core/Camera.js';
 import { SoundManager } from '/engine/audio/SoundManager.js';
+import { MusicDirector } from '/engine/audio/MusicDirector.js';
 import { EntityLoopManager } from '/engine/audio/EntityLoopManager.js';
 import { BackgroundRenderer } from '/engine/render/BackgroundRenderer.js';
 import { EffectsManager } from '/engine/fx/EffectsManager.js';
@@ -23,6 +24,7 @@ const ctx = canvas.getContext('2d');
 
 const camera = new Camera(canvas);
 const sound = new SoundManager();
+const music = new MusicDirector(sound); // adaptive background music (data/music.json)
 const loopMgr = new EntityLoopManager(sound);
 const background = new BackgroundRenderer(camera, canvas, BACKGROUND_LAYERS);
 const effects = new EffectsManager();
@@ -46,7 +48,7 @@ const gardenRenderer = new GardenRenderer(ctx, camera, art, VFX_DEFS, effectsRen
 const game = new Game({ canvas, sound, background, clearColor: PALETTE.base });
 
 const shared = {
-  canvas, ctx, camera, sound, loopMgr, effects, effectsRenderer,
+  canvas, ctx, camera, sound, music, loopMgr, effects, effectsRenderer,
   sequences, art, gardenRenderer, VFX_DEFS, game,
 };
 

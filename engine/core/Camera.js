@@ -14,6 +14,13 @@ export class Camera {
     this.maxZoom = maxZoom;
   }
 
+  // Logical (CSS-px) viewport size. With HiDPI sizing the backing-store width/
+  // height are device px (dpr-scaled); clientWidth/clientHeight stay logical and
+  // match the dpr-scaled draw space + pointer offsetX/Y. Falls back to width/
+  // height for plain {width,height} objects (tests).
+  _vw() { return this.canvas.clientWidth || this.canvas.width; }
+  _vh() { return this.canvas.clientHeight || this.canvas.height; }
+
   follow(target) {
     if (target) {
       this.x = target.x;
@@ -23,8 +30,8 @@ export class Camera {
 
   worldToScreen(wx, wy) {
     return {
-      sx: (wx - this.x) * this.zoom + this.canvas.width / 2,
-      sy: (wy - this.y) * this.zoom + this.canvas.height / 2,
+      sx: (wx - this.x) * this.zoom + this._vw() / 2,
+      sy: (wy - this.y) * this.zoom + this._vh() / 2,
     };
   }
 
@@ -36,8 +43,8 @@ export class Camera {
   // Inverse of worldToScreen — for click/cursor → world coordinates.
   screenToWorld(sx, sy) {
     return {
-      x: (sx - this.canvas.width / 2) / this.zoom + this.x,
-      y: (sy - this.canvas.height / 2) / this.zoom + this.y,
+      x: (sx - this._vw() / 2) / this.zoom + this.x,
+      y: (sy - this._vh() / 2) / this.zoom + this.y,
     };
   }
 
@@ -57,8 +64,8 @@ export class Camera {
   }
 
   getVisibleBounds() {
-    const hw = this.canvas.width / 2 / this.zoom;
-    const hh = this.canvas.height / 2 / this.zoom;
+    const hw = this._vw() / 2 / this.zoom;
+    const hh = this._vh() / 2 / this.zoom;
     return { left: this.x - hw, right: this.x + hw, top: this.y - hh, bottom: this.y + hh };
   }
 }

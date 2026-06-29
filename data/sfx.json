@@ -1,5 +1,5 @@
 {
-  "categories": ["ambient", "critter", "fx", "ui"],
+  "categories": ["ambient", "critter", "fx", "ui", "music"],
   "sounds": {
     "spawnChirp": {
       "volume": 0.5, "range": 900, "category": "critter", "loop": false,
@@ -83,6 +83,77 @@
     "critterHum": {
       "volume": 0.25, "range": 700, "category": "critter", "loop": true,
       "synth": { "layers": [ { "type": "sine", "freq": 220, "gain": 0.4 }, { "type": "sine", "freq": 223, "gain": 0.25 } ] }
+    },
+
+    "cgBass": {
+      "volume": 0.42, "range": 0, "category": "music", "loop": true,
+      "synth": {
+        "layers": [ { "type": "triangle", "freq": 65, "gain": 0.5 }, { "type": "sine", "freq": 130, "gain": 0.28 } ],
+        "attack": 0.02, "filter": { "type": "lowpass", "freq": 900 }, "reverb": 0.15,
+        "midi": { "file": "/MIDI/critter-garden.mid", "track": "Bass" }
+      }
+    },
+    "cgMarimba": {
+      "volume": 0.4, "range": 0, "category": "music", "loop": true,
+      "synth": {
+        "layers": [ { "type": "triangle", "freq": 523, "gain": 0.5 }, { "type": "sine", "freq": 1046, "gain": 0.16 } ],
+        "attack": 0.002, "filter": { "type": "lowpass", "freq": 3200 }, "reverb": 0.22,
+        "midi": { "file": "/MIDI/critter-garden.mid", "track": "Marimba" }
+      }
+    },
+    "cgPad": {
+      "volume": 0.32, "range": 0, "category": "music", "loop": true,
+      "synth": {
+        "layers": [ { "type": "sine", "freq": 262, "gain": 0.34 }, { "type": "triangle", "freq": 392, "gain": 0.16 } ],
+        "attack": 0.25, "lfo": { "freq": 0.3, "depth": 0.35 }, "vibrato": { "freq": 4, "depth": 5 },
+        "filter": { "type": "lowpass", "freq": 2000 }, "reverb": 0.5,
+        "midi": { "file": "/MIDI/critter-garden.mid", "track": "Pad" }
+      }
+    },
+    "cgFlute": {
+      "volume": 0.38, "range": 0, "category": "music", "loop": true,
+      "synth": {
+        "layers": [ { "type": "sine", "freq": 700, "gain": 0.4 }, { "type": "triangle", "freq": 1400, "gain": 0.08 } ],
+        "attack": 0.04, "vibrato": { "freq": 5, "depth": 8 }, "filter": { "type": "lowpass", "freq": 3500 }, "reverb": 0.35,
+        "midi": { "file": "/MIDI/critter-garden.mid", "track": "Flute" }
+      }
+    },
+    "cgBells": {
+      "volume": 0.34, "range": 0, "category": "music", "loop": true,
+      "synth": {
+        "layers": [ { "type": "sine", "freq": 1318, "gain": 0.4 }, { "type": "sine", "freq": 2636, "gain": 0.12 } ],
+        "attack": 0.002, "filter": { "type": "lowpass", "freq": 6000 }, "reverb": 0.5,
+        "midi": { "file": "/MIDI/critter-garden.mid", "track": "Bells" }
+      }
+    },
+    "cgShaker": {
+      "volume": 0.34, "range": 0, "category": "music", "loop": true,
+      "synth": {
+        "layers": [ { "type": "noise", "gain": 0.6, "filter": { "type": "highpass", "freq": 5000, "q": 0.7 } } ],
+        "attack": 0.002, "reverb": 0.12,
+        "midi": { "file": "/MIDI/critter-garden.mid", "track": "Shaker" }
+      }
+    },
+    "cgKick": {
+      "volume": 0.4, "range": 0, "category": "music", "loop": true,
+      "synth": {
+        "layers": [ { "type": "triangle", "freq": 110, "freqEnd": 55, "gain": 0.6 }, { "type": "noise", "gain": 0.18, "filter": { "type": "lowpass", "freq": 400 } } ],
+        "attack": 0.002, "filter": { "type": "lowpass", "freq": 1400 },
+        "midi": { "file": "/MIDI/critter-garden.mid", "track": "Kick" }
+      }
+    },
+    "cgLead": {
+      "volume": 0.3, "range": 0, "category": "music", "loop": true,
+      "synth": {
+        "layers": [
+          { "type": "sawtooth", "freq": 587, "gain": 0.34 },
+          { "type": "sawtooth", "freq": 587, "gain": 0.2, "detune": 10 },
+          { "type": "sawtooth", "freq": 587, "gain": 0.14, "detune": -10 }
+        ],
+        "attack": 0.012, "vibrato": { "freq": 6, "depth": 14 }, "distortion": 0.2,
+        "filter": { "type": "lowpass", "freq": 3000 }, "reverb": 0.25,
+        "midi": { "file": "/MIDI/critter-garden.mid", "track": "Lead" }
+      }
     }
   }
 }

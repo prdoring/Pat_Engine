@@ -35,6 +35,22 @@ test('audio + fx classes construct', async () => {
   const { FXSequenceRunner } = await import('/engine/fx/FXSequenceRunner.js');
   const runner = new FXSequenceRunner(sm, null, () => {});
   assert.equal(typeof runner.play, 'function');
+  const { MusicDirector } = await import('/engine/audio/MusicDirector.js');
+  assert.equal(typeof new MusicDirector(sm).startSong, 'function');
+  const midi = await import('/engine/audio/midi.js');
+  assert.equal(typeof midi.parseMidi, 'function');
+  const mus = await import('/engine/data/music.js');
+  assert.equal(typeof mus.MUSIC_SONGS, 'object');
+});
+
+test('render/ui cache primitives + room server export their entry points', async () => {
+  const { SpriteCache } = await import('/engine/render/SpriteCache.js');
+  assert.equal(typeof new SpriteCache().get, 'function');
+  const txt = await import('/engine/ui/TextCache.js');
+  assert.equal(typeof txt.fitParagraph, 'function');
+  assert.equal(typeof txt.wrapLines, 'function');
+  const { RoomServer } = await import('/engine/net/RoomServer.js');
+  assert.equal(typeof RoomServer, 'function');
 });
 
 test('physics math is callable', async () => {

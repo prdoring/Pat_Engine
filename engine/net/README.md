@@ -9,9 +9,14 @@ head-start template, not a tested component — wire it into a real project and 
 | File | Runs on | Purpose |
 |---|---|---|
 | `protocol.js` | both | `serialize`/`deserialize` (JSON) + `defineMessageTypes(...)` |
-| `NetworkClient.js` | browser | WebSocket client with `on(type, handler)` dispatch + auto-reconnect |
+| `NetworkClient.js` | browser | WebSocket client with `on(type, handler)` dispatch + reconnect (exponential backoff + jitter) |
 | `ServerLoop.js` | Node | fixed-timestep loop over a systems registry + a broadcast hook |
 | `StateBuffer.js` | browser | interpolation buffer driven by a per-entity field config |
+| `RoomServer.js` | Node | room/lobby host: short-code rooms, reconnect tokens, host role, TTL teardown, heartbeat — game logic injected (**covered by `tests/roomServer.test.js`**) |
+
+`ServerLoop` + `StateBuffer` suit **authoritative real-time** games (one world, fixed tick,
+interpolated snapshots). `RoomServer` suits **room-based / party** games (many independent rooms
+joined by a short code, turn/phase logic in your own room object). Pick one per project.
 
 ## Wiring sketch
 
@@ -50,6 +55,35 @@ const state = buffer.getInterpolated(performance.now());
 // ...render state.entities...
 net.send({ type: 'INPUT', seq, input });
 ```
+
+## Room/lobby host (`RoomServer`)
+
+For party/room games, skip `ServerLoop` and let `RoomServer` own the connection lifecycle.
+You supply a `createRoomLogic(ctx)` factory called once per room; it returns the per-room
+hooks. `RoomServer` never reads `member.data` — that opaque bag is yours.
+
+**Server** (Node — add `ws` and a `WebSocketServer` to `server/main.js`):
+```js
+import { WebSocketServer } from 'ws';
+import { RoomServer } from '../engine/net/RoomServer.js';
+
+const wss = new WebSocketServer({ server, maxPayload: 16 * 1024 });
+new RoomServer(wss, {
+  // optional overrides: { ROOM_TTL, MAX_ROOM_AGE, CODE_LEN, HEARTBEAT_MS, CODE_ALPHABET }
+  createRoomLogic: (ctx) => ({
+    canJoin(member)        { return ctx.connectedMembers().length < 8; },
+    onJoin(member)         { member.data.score = 0; ctx.broadcast(roster(ctx)); },
+    onReconnect(member)    { ctx.sendTo(member, snapshotFor(ctx, member)); },
+    onLeave(member)        { ctx.broadcast(roster(ctx)); },
+    onMessage(member, msg) { /* your game intents → mutate member.data, ctx.broadcast(...) */ },
+    onEnd()                { /* room torn down (empty/aged out) */ },
+  }),
+});
+```
+`ctx` gives the room `broadcast`/`sendTo`, `members`/`connectedMembers`/`host`/`memberById`,
+`scheduleTransition(ms, cb)`/`clearTransition()` (one timer per room), `rng`, `now()`, `code`,
+and `end()`. The browser side is just `NetworkClient` sending `CREATE`/`JOIN`/`REJOIN` and your
+own message types.
 
 ## Notes
 - The single-player core (`engine/core/Game.js`) has **zero** dependency on this module.

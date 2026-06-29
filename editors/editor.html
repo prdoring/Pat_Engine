@@ -744,23 +744,26 @@
       <button class="tab" data-tab="vfx">VFX<span class="unsaved-dot">&#8226;</span></button>
       <button class="tab" data-tab="sequences">Sequences<span class="unsaved-dot">&#8226;</span></button>
       <button class="tab" data-tab="soundboard">Soundboard<span class="unsaved-dot">&#8226;</span></button>
+      <button class="tab" data-tab="music">Music<span class="unsaved-dot">&#8226;</span></button>
     </div>
     <div class="tab-panels">
       <div class="tab-content active" id="tab-art"></div>
       <div class="tab-content" id="tab-vfx"></div>
       <div class="tab-content" id="tab-sequences"></div>
       <div class="tab-content" id="tab-soundboard"></div>
+      <div class="tab-content" id="tab-music"></div>
     </div>
   </div>
 
   <script type="module">
-    const TAB_IDS = ['art', 'vfx', 'sequences', 'soundboard'];
+    const TAB_IDS = ['art', 'vfx', 'sequences', 'soundboard', 'music'];
 
     const editors = {
       art:        { module: null, mounted: false },
       vfx:        { module: null, mounted: false },
       sequences:  { module: null, mounted: false },
       soundboard: { module: null, mounted: false },
+      music:      { module: null, mounted: false },
     };
 
     let activeTab = null;

@@ -414,6 +414,28 @@ loopMgr.cleanupStale({ fadeOut: 0.2 });   // stops loops for entities gone this 
 // on removal: loopMgr.stopEntity(e.id, { fadeOut: 0.1 });  on exit: loopMgr.stopAll();
 ```
 
+**Synth voices** (sfx.json `synth`) go beyond oscillators+envelope+LFO+reverb: a `noise` layer
+type, `vibrato:{freq,depth}` (pitch LFO), `filter:{type,freq,q}` (biquad tone), `distortion:0..1`
+(waveshaper), and `midi:{file,track}` — render a `.mid` score through the voice. Author/tune all of
+these in the **soundboard** editor; scalar fields accept `[min,max]` for per-trigger randomization.
+
+### Adaptive music — `MusicDirector` (`engine/audio/MusicDirector.js`)
+
+Vertical-remixing background music from `data/music.json`: several synchronized looping stems that
+crossfade by **intensity** with no restart. A scene drives mood; the engine fades layers.
+
+```js
+const music = new MusicDirector(sound);           // add to `shared`
+music.startSong('songId', { intensity: 'calm' });  // all stems share one downbeat; fade to the tier
+music.setIntensity('triumph');                     // crossfade — tiers map stem → absolute gain 0..1
+music.stop();                                      // in scene exit()
+```
+
+Each stem is a `loop:true` + `synth.midi` sound (its timbre + which `track` of one shared multi-track
+`.mid`). Stems only start once their score is parsed — gate `startSong` on `sound.loadMidi(path)`
+(resume() preloads it async). Author songs in the **music** editor (faders per stem per vibe). The
+example wires this in `GardenScene` (population → `calm`/`lively`/`playful`, a pairing punches `triumph`).
+
 ### Camera — `engine/core/Camera.js`
 
 ```js
@@ -448,6 +470,53 @@ Drag is **frame-rate independent** (referenced to 60 Hz). Pass `dt` in seconds, 
 `new BackgroundRenderer(camera, canvas, layers)` — `layers` is a config array (see
 `game/config.js` `BACKGROUND_LAYERS` for the shape: parallax, tileSize, count, size,
 opacity, drift, pulse, color). Neutral default if omitted. Zoom-aware.
+
+### Performance helpers — `SpriteCache` + `TextCache`
+
+Two optional, game-agnostic memoizers for hot render paths:
+
+- **`SpriteCache`** (`engine/render/SpriteCache.js`) — rasterize expensive, frame-stable drawing
+  (layered vector art, blur halos) once to an offscreen tile and blit it. `cache.get(key, w, h, draw)`
+  returns a cached canvas (or `null` in Node — fall back to direct draw). **You own the key**: encode
+  what changes the pixels (id/state/size), exclude per-frame transforms (position/rotation/bob) and
+  apply those at blit time. DPR is handled for you.
+- **`TextCache`** (`engine/ui/TextCache.js`) — `fitParagraph`/`drawParagraph`/`wrapLines`: word-wrap +
+  shrink-to-fit with a memoized fit (avoids ~9–14 `measureText` passes per paragraph per frame). Pass
+  the `family`/`weight`; no game styling baked in.
+
+These live in the engine but stay ignorant of game content — the game decides what to cache and how to
+key it. Reach for them when profiling shows per-frame re-rasterization or text measuring is hot.
+
+### Multiplayer rooms — `RoomServer` (optional)
+
+For room/lobby games, `engine/net/RoomServer.js` is a generic WebSocket room host (short-code rooms,
+reconnect tokens, host role, TTL teardown, heartbeat). Inject game logic via `createRoomLogic(ctx)`;
+`member.data` is an opaque bag the server never reads. It's part of the **optional** net module
+(unwired by the single-player example) — see `engine/net/README.md` for the wiring sketch.
+
+### Shot harness — render predefined game states to images (`/shots`)
+
+Built for agentic dev: declare named game states in `data/shots.json`, then view them as images to
+judge and iterate (edit art/scene code → reload `/shots` → look → repeat). The engine ships the runner;
+the game owns the states and how to draw them.
+
+- **You author** `data/shots.json` — `{ "render": "/game/shots.js", "shots": [{ id, scene, viewport,
+  now?, seed?, camera?, state }] }`. `state` is **opaque game state**; the engine never reads it.
+- **You implement** `renderShot(ctx, shot, env)` in `game/shots.js`. The contract (this is the part
+  that bites): hydrate `shot.state` directly and **skip the scene's `enter()`** — `enter()` does audio
+  / network / `Math.random` spawns that don't belong in a static frame. Build a headless `shared`
+  (no audio/`Game`), assign the scene's fields from `state`, then call the scene's **real `render()`**
+  so a shot can never drift from how the game actually draws. The example (`game/shots.js`) builds
+  `Critter` instances + props from `state`, rebuilds `linkedTo` pairs, optionally warms up
+  `state.warmupFrames` seeded frames for trails, and renders.
+- **Engine side** (`engine/harness/`, all game-agnostic): `runShots({ shots, renderShot, makeCanvas,
+  emit })` sizes a DPR-scaled canvas, seeds `Math.random`, and calls your `renderShot` (passed as a
+  parameter — the engine never imports `game/`; the page reaches your module via the data-declared
+  `render` path). `composeContactSheet` makes the grid; `seededRandom`/`withSeed` keep frames stable.
+- **Browser is the image backend** (real glow/blur/fonts/DPR). `tests/shots.test.js` is a Node smoke
+  test only (every shot renders + emits draws), not a pixel path. View at `/shots` (contact sheet) or
+  `/shots?shot=<id>&scale=N`; drive headlessly with any browser tool and screenshot. **Use this to
+  *see* your art/scene changes** — it's the fastest visual feedback loop in the engine.
 
 ---
 

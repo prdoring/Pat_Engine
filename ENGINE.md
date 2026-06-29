@@ -7,12 +7,16 @@ A no-build, browser-native 2D engine. The game statically imports engine modules
 
 ```
 engine/core    Game (loop + scene router), Scene, Camera, canvasUtils, VolumeControl
-engine/render  ArtInterpreter, VFXInterpreter, EffectsRenderer, BackgroundRenderer
+engine/render  ArtInterpreter, VFXInterpreter, EffectsRenderer, BackgroundRenderer, SpriteCache
+engine/ui      TextCache (word-wrap + fit-to-box memoizer)
+engine/harness runShots, contactSheet, seededRandom (render predefined game states → images)
 engine/fx      EffectsManager (effects/trails/debris), FXSequenceRunner (orchestration)
-engine/audio   SoundManager (Web Audio), EntityLoopManager (per-entity positional loops)
+engine/audio   SoundManager (Web Audio + synth + MIDI), MusicDirector (adaptive music),
+               midi (SMF parser), EntityLoopManager (per-entity positional loops)
 engine/physics shipPhysics, collision, constants
-engine/data    art / vfx / sounds / fxSequences loaders (deep-clone JSON)
-engine/net     OPTIONAL multiplayer module (unwired by the example — see net/README.md)
+engine/data    art / vfx / sounds / fxSequences / music loaders (deep-clone JSON)
+engine/net     OPTIONAL multiplayer module — NetworkClient/ServerLoop/StateBuffer +
+               RoomServer (room/lobby host). Unwired by the example — see net/README.md
 ```
 
 ## Hard runtime requirements
@@ -68,12 +72,51 @@ er.drawEffectAt(effectDef, x, y, progress, scale, now); // per-entity persistent
 ### `BackgroundRenderer(camera, canvas, layers?)`
 Parallax particle background. Pass a `layers` config (see `game/config.js` for the shape).
 
+### `SpriteCache` (`engine/render/SpriteCache.js`)
+Generic offscreen-canvas LRU memoizer — rasterize expensive, frame-stable drawing once and blit it.
+```js
+const cache = new SpriteCache({ max: 64, dprCap: 3 });
+const tile = cache.get(key, w, h, (cctx, w, h) => { /* paint in logical px on a miss */ });
+if (tile) ctx.drawImage(tile.canvas, x, y, tile.w, tile.h); else drawDirect(ctx); // null when no canvas (Node)
+```
+The **caller** owns `key` (encode everything that changes the pixels — id/palette/state/size — and
+exclude per-frame transforms like position/rotation/bob; apply those at blit). DPR is folded into the
+backing store + the key. `clear()` drops all tiles; `size` reports the count.
+
+## UI
+
+### `TextCache` (`engine/ui/TextCache.js`)
+Word-wrap + auto-shrink-to-fit text with a memoized fit (the search costs ~9–14 `measureText` passes;
+the result is cached, LRU 200). `font` family/weight are parameters (default sans-serif) — no game styling.
+```js
+const fit = fitParagraph(ctx, text, { w, h, max: 40, min: 14, weight: 700, family });
+// → { size, lines, lineHeight, font }
+drawParagraph(ctx, text, { x, y, w, h, color, weight, family });  // wrap+shrink, centered; returns height
+wrapLines(ctx, text, maxWidth);                                    // → string[]
+```
+
 ## Audio
 
 ### `SoundManager` (`engine/audio/SoundManager.js`)
 `init()`, `resume()`, `playUI(id, opts)`, `playPositional(id, x, y, opts)`,
-`startLoop/updateLoop/stopLoop`, `startUILoop/stopUILoop`, `updateListener(x, y, angle)`,
-`setVolume/getVolume/isMuted/toggleMute`. Reads `SOUND_CONFIG` (sfx.json).
+`startLoop/updateLoop/stopLoop`, `startUILoop/stopUILoop`, `fadeLoop(handle, targetVol, secs)`,
+`loadMidi(path)`, `updateListener(x, y, angle)`, `setVolume/getVolume/isMuted/toggleMute`. Reads
+`SOUND_CONFIG` (sfx.json). Synth voices support layers (`sine`/`square`/`sawtooth`/`triangle`/`file`/
+`noise`), envelope, LFO, reverb, **vibrato** (pitch LFO), a **tone filter** (biquad), **distortion**
+(waveshaper), and **MIDI tunes** (`synth.midi` renders a `.mid` score through the voice).
+
+### `MusicDirector(soundManager)` (`engine/audio/MusicDirector.js`)
+Adaptive (vertical-remixing) background music from `data/music.json`. Plays several synchronized
+looping stems and crossfades them by intensity — no restart.
+```js
+const music = new MusicDirector(sound);
+music.startSong('songId', { intensity: 'calm', fadeSeconds: 1.5 });
+music.setIntensity('triumph', 1.0);   // crossfade to a tier (absolute per-stem gains)
+music.fadeStem('lead', 0.6, 2);       // nudge one stem
+music.stop({ fadeOut: 0.6 });
+```
+Each stem is a `loop:true` + `synth.midi` sound (its timbre + which `track` of the shared multi-track
+`.mid` it plays). `engine/audio/midi.js` `parseMidi(arrayBuffer)` → `{ notes, duration, tracks }`.
 
 ### `EntityLoopManager(sound)` (`engine/audio/EntityLoopManager.js`)
 Per-entity positional loops with frame lifecycle: `beginFrame()`, `updateEntity(id, soundId, x, y, opts)`,
@@ -112,7 +155,14 @@ time-windowed `phases[].layers[]` of primitives (`filledCircle`, `gradientCircle
 `{from,to}`, `{from,to,modulate:{freq,amp}}`, `{base,amplitude,freq}`.
 
 **SFX** (`{ categories, sounds }`): each sound is `{ volume, range, category, loop, synth }`; `synth`
-is oscillator/file layers + envelope/LFO/reverb. `range:0` = UI (non-positional).
+is layers (`sine`/`square`/`sawtooth`/`triangle`/`file`/`noise`) + envelope/LFO/reverb, plus optional
+`vibrato:{freq,depth}`, `filter:{type,freq,q}`, `distortion:0..1`, and `midi:{file,track,transpose,tempo}`
+(render a `.mid` score through the voice). Scalar synth fields accept `[min,max]` for per-trigger
+randomization. `range:0` = UI (non-positional).
+
+**Music** (`data/music.json` → `{ songs: { id: song } }`): a `song` is
+`{ stems:[{name,sound,gain}], intensity:{ <tier>: { <stemName>: 0..1 } }, masterLevel?, fadeSeconds? }`.
+Each stem's `sound` is a `loop:true` + `synth.midi` sound; tiers map stem → absolute gain (absent = silent).
 
 **Sequences** (`{ "sequences": { id: { positional?, steps:[...] } } }`): steps are
 `sfx`/`vfx`/`loopStart`/`loopStop`/`signal` with `delay` + type fields.
@@ -121,7 +171,31 @@ is oscillator/file layers + envelope/LFO/reverb. `range:0` = UI (non-positional)
 (`{id,label,file,collectionKey}`), `previewEntities` (`{id,label,artCollection,artId,radius,color,states}`),
 `vfxCategories` (`{id,label,match:[...]}`).
 
+## Shot harness (`/shots`) — predefined game states → images
+
+A game-agnostic path to render named game states to images, for agentic dev (edit art/scene code →
+get PNGs → inspect → iterate). **Browser is the image backend** (real canvas: glow/blur/fonts/DPR); a
+Node smoke test (`tests/shots.test.js`) guards CI but produces no pixels.
+
+- **`data/shots.json`** — `{ "render": "/game/shots.js", "shots": [ { id, scene, viewport:{w,h}, now?,
+  seed?, camera?, state } ] }`. `state` is **opaque** game state; the engine never reads it.
+- **Game seam** — `renderShot(ctx, shot, env)` (env = `{ now, width, height, dpr }`) draws one shot.
+  Contract: hydrate `shot.state` directly and **skip the scene's `enter()`** (it has audio/RNG side
+  effects), then reuse the scene's real `render()` so shots never drift from gameplay.
+- **`engine/harness/runShots.js`** — `runShots({ shots, renderShot, makeCanvas, emit, defaults })`:
+  per shot sizes a canvas (`w*dpr`), pre-scales the ctx to logical px, seeds `Math.random`, calls
+  `renderShot`. Takes `renderShot` as a **parameter** and is reached via `data/shots.json`'s `render`
+  path (data-declared dynamic `import()`), so `engine/` never imports `game/` (rule #1). `makeCanvas`/
+  `emit` keep it backend-agnostic (a Node rasterizer could drop in later).
+- **`engine/harness/contactSheet.js`** — `composeContactSheet(items, { makeCanvas, ... })`: labeled grid.
+- **`engine/harness/seededRandom.js`** — `seededRandom`/`hashSeed`/`withSeed` for reproducible frames.
+- **View it:** open `/shots` (contact sheet of all states) or `/shots?shot=<id>&scale=N` (one full-res).
+  Drive headlessly with any browser tool (gstack `browse`, Playwright): `goto /shots` → screenshot.
+  `window.__shots = { ids, render(id) }` is exposed for programmatic capture.
+
 ## Editors (`/editor`)
-Tab host (`editor.html`) lazy-loads `art`, `vfx`, `sequences`, `soundboard` editors. All save through
-`POST /api/save-data` (allowlist + `.backups/` rotation). Art/VFX/Sequence editors are driven by the
-manifest, so a new project repoints the manifest instead of editing editor source.
+Tab host (`editor.html`) lazy-loads `art`, `vfx`, `sequences`, `soundboard`, `music` editors. All save
+through `POST /api/save-data` (allowlist + `.backups/` rotation). Art/VFX/Sequence editors are driven by
+the manifest, so a new project repoints the manifest instead of editing editor source. The soundboard
+edits sfx.json (incl. vibrato/filter/distortion/noise/MIDI); the music editor is a mixing console for
+`data/music.json` (song picker, vibe scenes, per-stem faders) auditioned live through `MusicDirector`.

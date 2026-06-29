@@ -1,0 +1,31 @@
+{
+  "songs": {
+    "critterGarden": {
+      "stems": [
+        { "name": "bass",    "sound": "cgBass",    "gain": 0.6 },
+        { "name": "marimba", "sound": "cgMarimba", "gain": 0.5 },
+        { "name": "pad",     "sound": "cgPad",     "gain": 0.4 },
+        { "name": "flute",   "sound": "cgFlute",   "gain": 0.5 },
+        { "name": "bells",   "sound": "cgBells",   "gain": 0.45 },
+        { "name": "shaker",  "sound": "cgShaker",  "gain": 0.5 },
+        { "name": "kick",    "sound": "cgKick",    "gain": 0.55 },
+        { "name": "lead",    "sound": "cgLead",    "gain": 0.55 }
+      ],
+      "masterLevel": 0.35,
+      "fadeSeconds": 1.5,
+      "_doc": "Adaptive pastoral theme for the Critter Garden example. Every stem is a looping instrument playing one track of the shared 8-bar C-major loop (assets/MIDI/critter-garden.mid), all locked to one downbeat. The game calls music.setIntensity(<vibe>) as the scene's mood changes; each vibe maps a stem name to an ABSOLUTE gain (0..1), and a stem absent from a vibe is silent in it. masterLevel scales the whole mix for headroom (many stems sum past 0 dBFS). Vibe meanings are in vibeDocs.",
+      "vibeDocs": {
+        "calm": "Idle garden — round bass, soft pad, a little marimba and the occasional bell. Lobby / waiting.",
+        "lively": "Critters are out — adds the flute melody and a shaker pulse over the bass and marimba.",
+        "playful": "Bouncy folk romp — marimba + flute + shaker forward with a light kick. Mid-energy, social.",
+        "triumph": "Big happy moment — every layer up, kick and bright synth lead driving. Win / climax."
+      },
+      "intensity": {
+        "calm":     { "bass": 0.7, "pad": 0.35, "marimba": 0.3, "bells": 0.4 },
+        "lively":   { "bass": 0.65, "marimba": 0.5, "pad": 0.25, "flute": 0.5, "bells": 0.4, "shaker": 0.5 },
+        "playful":  { "bass": 0.6, "marimba": 0.55, "flute": 0.45, "bells": 0.45, "shaker": 0.55, "kick": 0.4 },
+        "triumph":  { "bass": 0.6, "marimba": 0.5, "pad": 0.3, "flute": 0.5, "bells": 0.5, "shaker": 0.5, "kick": 0.6, "lead": 0.6 }
+      }
+    }
+  }
+}

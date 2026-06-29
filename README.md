@@ -7,8 +7,9 @@ hard-won, data-driven creative pipeline:
 - **VFX** — a data-driven effects interpreter + editor (phased effects, trails, beams).
 - **Sequences** — an FX-sequence runner + timeline editor that orchestrate **sound + VFX + state
   changes together** from JSON.
-- **Sound** — a Web-Audio synth/sample engine + soundboard editor.
+- **Sound** — a Web-Audio synth/sample engine (incl. MIDI tunes + adaptive music) + soundboard/music editors.
 - **Editors** — a unified editor suite with a file-based save/backup pipeline.
+- **Shot harness** — render predefined game states (`data/shots.json`) to images for agentic dev/review.
 
 It ships with the **Critter Garden** example game, a tiny single-player toy that exercises every
 subsystem and validates the extraction.
@@ -22,6 +23,8 @@ npm start
 
 - Game: <http://localhost:6970/>
 - Editor suite: <http://localhost:6970/editor>
+- Shots: <http://localhost:6970/shots> — render predefined game states (`data/shots.json`) to images
+  for visual review; `?shot=<id>` for one full-res. Built for agentic dev (edit → reload → look).
 
 ## Test
 

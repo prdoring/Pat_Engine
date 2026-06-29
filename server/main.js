@@ -36,12 +36,14 @@ const MOUNTS = {
   game: DIRS.game,
   assets: path.join(DIRS.root, 'assets'),
   SFX: DIRS.sfx,
+  MIDI: DIRS.midi,
 };
 
 // Routes that require editor auth when EDITOR_PASSWORD is set.
 function isEditorRoute(method, pathname) {
   return (method === 'POST' && pathname === '/api/save-data')
     || (method === 'GET' && pathname === '/api/sfx-files')
+    || (method === 'GET' && pathname === '/api/midi-files')
     || pathname === '/editor'
     || pathname.startsWith('/editors/');
 }
@@ -165,6 +167,15 @@ export function requestHandler(req, res) {
       });
     }
 
+    // ── MIDI file listing (for the soundboard MIDI-tune picker) ──
+    if (req.method === 'GET' && pathname === '/api/midi-files') {
+      return fs.readdir(DIRS.midi, (err, files) => {
+        if (err) return sendJson(res, 200, []);
+        const midi = files.filter(f => /\.midi?$/i.test(f)).map(f => '/MIDI/' + f).sort();
+        sendJson(res, 200, midi);
+      });
+    }
+
     if (req.method !== 'GET') return send(res, 405, 'text/plain', 'Method not allowed');
 
     // ── Page routes ──
@@ -173,6 +184,10 @@ export function requestHandler(req, res) {
     }
     if (pathname === '/editor') {
       return serveFile(res, DIRS.editors, 'editor.html');
+    }
+    // Shot harness viewer — renders predefined game states to images (read-only, ungated).
+    if (pathname === '/shots') {
+      return serveFile(res, DIRS.editors, 'shots.html');
     }
 
     // ── Static mounts: first path segment selects the directory ──
@@ -184,6 +199,13 @@ export function requestHandler(req, res) {
     const mountBase = MOUNTS[segments[0]];
     if (mountBase) {
       return serveFile(res, mountBase, segments.slice(1).join('/'));
+    }
+
+    // Top-level files (favicon.ico, site.webmanifest, apple-touch-icon.png,
+    // og-image.png, robots.txt, …) are served from /public. Single-segment only,
+    // so this can't expose project source at the root; serveFile 404s if absent.
+    if (segments.length === 1) {
+      return serveFile(res, DIRS.public, segments[0]);
     }
 
     send(res, 404, 'text/plain', 'Not found');

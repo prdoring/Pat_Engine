@@ -105,7 +105,11 @@ export class EffectsManager {
   /** Remove generic effect(s) by the id supplied to addGenericEffect. */
   removeGenericEffect(id) {
     if (id == null) return;
-    this.genericEffects = this.genericEffects.filter(e => e.id !== id);
+    // In-place stable compaction — preserves draw order, allocates no new array.
+    const e = this.genericEffects;
+    let w = 0;
+    for (let i = 0; i < e.length; i++) if (e[i].id !== id) e[w++] = e[i];
+    e.length = w;
   }
 
   getGenericEffects(now) {
@@ -117,9 +121,14 @@ export class EffectsManager {
   }
 
   _cleanupEffects(now) {
-    this.genericEffects = this.genericEffects.filter(
-      e => !e.duration || now - e.startTime < e.duration
-    );
+    // In-place compaction (runs every frame via update()) — no per-frame array alloc.
+    const e = this.genericEffects;
+    let w = 0;
+    for (let i = 0; i < e.length; i++) {
+      const fx = e[i];
+      if (!fx.duration || now - fx.startTime < fx.duration) e[w++] = fx;
+    }
+    e.length = w;
   }
 
   // ─── Debris particles ────────────────────────────────────────────
@@ -141,15 +150,19 @@ export class EffectsManager {
     // Clamp dt so a backgrounded tab (large now gap) doesn't teleport debris.
     const dt = this.lastDebrisUpdate ? Math.min(0.05, (now - this.lastDebrisUpdate) / 1000) : 0.016;
     this.lastDebrisUpdate = now;
-    this.debris = this.debris.filter(d => {
-      const age = now - d.startTime;
-      if (age >= d.lifetime) return false;
-      d.x += d.vx * dt;
-      d.y += d.vy * dt;
-      d.vx *= DEBRIS_DRAG;
-      d.vy *= DEBRIS_DRAG;
-      return true;
-    });
+    // Advance + cull live particles in place (every frame) — no new array per frame.
+    const d = this.debris;
+    let w = 0;
+    for (let i = 0; i < d.length; i++) {
+      const p = d[i];
+      if (now - p.startTime >= p.lifetime) continue;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.vx *= DEBRIS_DRAG;
+      p.vy *= DEBRIS_DRAG;
+      d[w++] = p;
+    }
+    d.length = w;
   }
 
   getDebris(now) {

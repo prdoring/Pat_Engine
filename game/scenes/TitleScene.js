@@ -10,8 +10,10 @@ export class TitleScene extends Scene {
 
   render(now) {
     const { ctx, canvas, art } = this.shared;
-    const cx = canvas.width / 2;
-    const cy = canvas.height / 2;
+    // Logical (CSS-px) size: with HiDPI the backing store is device px (dpr-scaled);
+    // clientWidth/Height stay logical and match the dpr-scaled draw space.
+    const cx = (canvas.clientWidth || canvas.width) / 2;
+    const cy = (canvas.clientHeight || canvas.height) / 2;
 
     // Emblem (vector art) above the title.
     const logo = art.props.logo;
