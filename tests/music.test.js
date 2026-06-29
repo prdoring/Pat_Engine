@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { MusicDirector } from '/engine/audio/MusicDirector.js';
+import { addStem, renameStem } from '/editors/musicModel.js';
 
 // Mock SoundManager recording the loop calls the director makes.
 class MockSound {
@@ -96,4 +97,23 @@ test('startSong replaces a playing song (idempotent)', () => {
   md.startSong(SONG);
   assert.equal(sm.stops.length, 3, 'prior song stopped before restart');
   assert.equal(sm.started.length, 6, 'second song started its 3 stems');
+});
+
+test('a song assembled via the music-editor helpers starts cleanly through the director', () => {
+  // Exercises the editor's output end-to-end: stems built with musicModel + song-level
+  // masterLevel/fadeSeconds must be a valid song the engine can start, with masterLevel
+  // scaling the mix.
+  const song = { stems: [], intensity: {}, masterLevel: 0.5, fadeSeconds: 2 };
+  addStem(song, { name: 'bass', sound: 'sndA', gain: 0.8 });
+  addStem(song, { name: 'lead', sound: 'sndB', gain: 0.6 });
+  assert.equal(renameStem(song, 'lead', 'melody'), true);
+  song.intensity.full = { bass: 0.8, melody: 0.6 };
+
+  const sm = new MockSound();
+  const md = new MusicDirector(sm);
+  assert.equal(md.startSong(song, { intensity: 'full' }), true);
+  assert.equal(sm.started.length, 2);
+  const target = name => sm.fades.find(f => f.h === sm.started.find(s => s.sound === name).h).target;
+  assert.equal(target('sndA'), 0.8 * 0.5); // headroom-scaled
+  assert.equal(target('sndB'), 0.6 * 0.5);
 });

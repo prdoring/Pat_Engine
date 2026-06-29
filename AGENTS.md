@@ -416,8 +416,9 @@ loopMgr.cleanupStale({ fadeOut: 0.2 });   // stops loops for entities gone this 
 
 **Synth voices** (sfx.json `synth`) go beyond oscillators+envelope+LFO+reverb: a `noise` layer
 type, `vibrato:{freq,depth}` (pitch LFO), `filter:{type,freq,q}` (biquad tone), `distortion:0..1`
-(waveshaper), and `midi:{file,track}` — render a `.mid` score through the voice. Author/tune all of
-these in the **soundboard** editor; scalar fields accept `[min,max]` for per-trigger randomization.
+(waveshaper), and `midi:{file,track,tempo,transpose}` — render a `.mid` score through the voice.
+Author/tune all of these in the **soundboard** editor; every synth scalar accepts `[min,max]` for
+per-trigger randomization — toggle a field to `[R]` range mode in the editor to author it.
 
 ### Adaptive music — `MusicDirector` (`engine/audio/MusicDirector.js`)
 
@@ -433,8 +434,10 @@ music.stop();                                      // in scene exit()
 
 Each stem is a `loop:true` + `synth.midi` sound (its timbre + which `track` of one shared multi-track
 `.mid`). Stems only start once their score is parsed — gate `startSong` on `sound.loadMidi(path)`
-(resume() preloads it async). Author songs in the **music** editor (faders per stem per vibe). The
-example wires this in `GardenScene` (population → `calm`/`lively`/`playful`, a pairing punches `triumph`).
+(resume() preloads it async). Assemble songs in the **Music** sub-tab (under **Soundboard**) — a mixing
+console: add/remove/reorder/rename stems, assign each stem's sound + MIDI track, set mix headroom (`masterLevel`) and
+crossfade (`fadeSeconds`), and author each vibe's per-stem faders (with rename/delete + a description).
+The example wires this in `GardenScene` (population → `calm`/`lively`/`playful`, a pairing punches `triumph`).
 
 ### Camera — `engine/core/Camera.js`
 
@@ -523,8 +526,9 @@ the game owns the states and how to draw them.
 ## 7. Data authoring & the editor pipeline
 
 All content lives in `data/*.json` and is editable in the browser editor at `/editor`
-(four tabs: **Art**, **VFX**, **Sequences**, **Soundboard**). The editors are retargeted
-purely by `data/editor-manifest.json` — no editor code changes per project.
+(four tabs: **Art**, **VFX**, **Sequences**, **Soundboard** — the last with **Sounds** + **Music**
+sub-tabs). The visual editors are retargeted purely by `data/editor-manifest.json`; the audio editors
+treat `sfx.json`/`music.json` as the opaque source of truth (no editor code changes per project).
 
 ### Authoring shapes (current schemas)
 

@@ -5,9 +5,25 @@ import { SOUND_CONFIG } from '/engine/data/sounds.js';
 import { SoundManager } from '/engine/audio/SoundManager.js';
 import {
   SaveManager,
-  NumberSlider, ColorInput, Select, TextInput, Toggle, Button,
+  NumberSlider, RandomizableSlider, ColorInput, Select, TextInput, Toggle, Button,
   PropertyGroup, createResizer,
 } from './editorShared.js';
+
+// The 8 Web Audio BiquadFilter types the engine supports (SoundManager._resolveFilter
+// passes `type` straight through). Shared by the voice filter and noise-layer filters.
+const FILTER_TYPES = [
+  { value: 'lowpass', label: 'Low-pass' },
+  { value: 'highpass', label: 'High-pass' },
+  { value: 'bandpass', label: 'Band-pass' },
+  { value: 'lowshelf', label: 'Low-shelf' },
+  { value: 'highshelf', label: 'High-shelf' },
+  { value: 'peaking', label: 'Peaking' },
+  { value: 'notch', label: 'Notch' },
+  { value: 'allpass', label: 'All-pass' },
+];
+
+// Resolve a possibly-[min,max] synth value to a single number for the static preview.
+const rv = (v) => (Array.isArray(v) ? v[0] : v);
 
 // ─── State ─────────────────────────────────────────────────────────────────
 
@@ -350,12 +366,12 @@ function renderSynthWaveform() {
   }
 
   const isLoop = config.loop;
-  const duration = isLoop ? 1.0 : (synth.duration ?? 0.5);
-  const attack = isLoop ? 0 : (synth.attack ?? 0.01);
-  const decay = isLoop ? 0 : (synth.decay ?? (duration - attack));
+  const duration = isLoop ? 1.0 : (rv(synth.duration) ?? 0.5);
+  const attack = isLoop ? 0 : (rv(synth.attack) ?? 0.01);
+  const decay = isLoop ? 0 : (rv(synth.decay) ?? (duration - attack));
 
   // Determine how many cycles to show — enough to see the shape clearly
-  const baseFreq = Math.min(...oscLayers.map(l => l.freq || 440));
+  const baseFreq = Math.min(...oscLayers.map(l => rv(l.freq) || 440));
   const totalCycles = isLoop ? Math.max(6, Math.min(16, baseFreq * 0.05)) : baseFreq * duration;
   const displayDuration = isLoop ? totalCycles / baseFreq : duration;
 
@@ -383,23 +399,23 @@ function renderSynthWaveform() {
     // LFO modulation
     let lfoMod = 1.0;
     if (synth.lfo) {
-      const lfoFreq = synth.lfo.freq || 4;
-      const lfoDepth = synth.lfo.depth || 0.3;
+      const lfoFreq = rv(synth.lfo.freq) || 4;
+      const lfoDepth = rv(synth.lfo.depth) || 0.3;
       lfoMod = 1.0 + lfoDepth * Math.sin(2 * Math.PI * lfoFreq * t);
     }
 
     // Sum oscillator layers
     let sample = 0;
     for (const layer of oscLayers) {
-      const freq = layer.freq || 440;
-      const freqEnd = layer.freqEnd;
+      const freq = rv(layer.freq) || 440;
+      const freqEnd = rv(layer.freqEnd);
       let f = freq;
       if (freqEnd && !isLoop) {
         // Exponential frequency sweep
         f = freq * Math.pow(freqEnd / freq, tNorm);
       }
       const phase = (f * t) % 1;
-      const gain = layer.gain ?? 1.0;
+      const gain = rv(layer.gain) ?? 1.0;
       sample += oscillatorSample(layer.type || 'sine', phase) * gain;
     }
 
@@ -465,7 +481,7 @@ function renderSynthWaveform() {
   // Labels
   ctx.fillStyle = '#5a4a30';
   ctx.font = '10px monospace';
-  const freqLabel = oscLayers.map(l => `${l.type || 'sine'} ${l.freq || 440}Hz`).join(' + ');
+  const freqLabel = oscLayers.map(l => `${l.type || 'sine'} ${rv(l.freq) || 440}Hz`).join(' + ');
   ctx.fillText(freqLabel, 6, 12);
   if (!isLoop) {
     ctx.fillText(`${duration.toFixed(2)}s  atk:${attack.toFixed(3)}  dec:${decay.toFixed(2)}`, 6, h - 4);
@@ -473,7 +489,7 @@ function renderSynthWaveform() {
     ctx.fillText('loop', 6, h - 4);
   }
   if (synth.lfo) {
-    ctx.fillText(`LFO ${synth.lfo.freq || 4}Hz depth:${synth.lfo.depth || 0.3}`, w - 180, 12);
+    ctx.fillText(`LFO ${rv(synth.lfo.freq) || 4}Hz depth:${rv(synth.lfo.depth) || 0.3}`, w - 180, 12);
   }
 }
 
@@ -751,6 +767,13 @@ function buildSynthPanel(config) {
     });
     midiGroup.addChild(transposeInput);
 
+    const tempoInput = NumberSlider('Tempo (×)', 0.25, 4, 0.05, synth.midi.tempo ?? 1, (val) => {
+      if (val === 1) delete synth.midi.tempo;
+      else synth.midi.tempo = val;
+      onParamChange();
+    });
+    midiGroup.addChild(tempoInput);
+
     // Track selector for multi-instrument songs — populated once the .mid is parsed.
     const midiInfo = synth.midi.file ? soundManager.midiData.get(synth.midi.file) : null;
     if (synth.midi.file && !midiInfo) {
@@ -791,19 +814,19 @@ function buildSynthPanel(config) {
     }
 
     if (hasOscLayers || hasEnvelopeParams) {
-      const durInput = NumberSlider('Duration (s)', 0.01, 10, 0.01, synth.duration ?? 0.5, (val) => {
+      const durInput = RandomizableSlider('Duration (s)', 0.01, 10, 0.01, synth.duration ?? 0.5, (val) => {
         synth.duration = val;
         onParamChange();
       });
       envelope.addChild(durInput);
 
-      const atkInput = NumberSlider('Attack (s)', 0.001, 5, 0.001, synth.attack ?? 0.01, (val) => {
+      const atkInput = RandomizableSlider('Attack (s)', 0.001, 5, 0.001, synth.attack ?? 0.01, (val) => {
         synth.attack = val;
         onParamChange();
       });
       envelope.addChild(atkInput);
 
-      const decInput = NumberSlider('Decay (s)', 0.01, 10, 0.01, synth.decay ?? 0.49, (val) => {
+      const decInput = RandomizableSlider('Decay (s)', 0.01, 10, 0.01, synth.decay ?? 0.49, (val) => {
         synth.decay = val;
         onParamChange();
       });
@@ -814,7 +837,7 @@ function buildSynthPanel(config) {
   // Reverb (always visible)
   const reverbGroup = PropertyGroup('Reverb');
   propsEl.appendChild(reverbGroup.el);
-  const reverbInput = NumberSlider('Reverb', 0, 1, 0.01, synth.reverb ?? 0, (val) => {
+  const reverbInput = RandomizableSlider('Reverb', 0, 1, 0.01, synth.reverb ?? 0, (val) => {
     if (val === 0) delete synth.reverb;
     else synth.reverb = val;
     onParamChange();
@@ -835,13 +858,13 @@ function buildSynthPanel(config) {
   lfoGroup.addChild(lfoToggle);
 
   if (synth.lfo) {
-    const lfoFreq = NumberSlider('LFO Freq (Hz)', 0.1, 50, 0.1, synth.lfo.freq ?? 4, (val) => {
+    const lfoFreq = RandomizableSlider('LFO Freq (Hz)', 0.1, 50, 0.1, synth.lfo.freq ?? 4, (val) => {
       synth.lfo.freq = val;
       onParamChange();
     });
     lfoGroup.addChild(lfoFreq);
 
-    const lfoDepth = NumberSlider('LFO Depth', 0, 1, 0.01, synth.lfo.depth ?? 0.3, (val) => {
+    const lfoDepth = RandomizableSlider('LFO Depth', 0, 1, 0.01, synth.lfo.depth ?? 0.3, (val) => {
       synth.lfo.depth = val;
       onParamChange();
     });
@@ -861,13 +884,13 @@ function buildSynthPanel(config) {
   vibratoGroup.addChild(vibratoToggle);
 
   if (synth.vibrato) {
-    const vibFreq = NumberSlider('Vibrato Freq (Hz)', 0.1, 12, 0.1, synth.vibrato.freq ?? 5, (val) => {
+    const vibFreq = RandomizableSlider('Vibrato Freq (Hz)', 0.1, 12, 0.1, synth.vibrato.freq ?? 5, (val) => {
       synth.vibrato.freq = val;
       onParamChange();
     });
     vibratoGroup.addChild(vibFreq);
 
-    const vibDepth = NumberSlider('Vibrato Depth (cents)', 0, 100, 1, synth.vibrato.depth ?? 15, (val) => {
+    const vibDepth = RandomizableSlider('Vibrato Depth (cents)', 0, 100, 1, synth.vibrato.depth ?? 15, (val) => {
       synth.vibrato.depth = val;
       onParamChange();
     });
@@ -875,11 +898,6 @@ function buildSynthPanel(config) {
   }
 
   // Tone filter (whole-voice colour)
-  const FILTER_TYPES = [
-    { value: 'lowpass', label: 'Low-pass' },
-    { value: 'highpass', label: 'High-pass' },
-    { value: 'bandpass', label: 'Band-pass' },
-  ];
   const filterGroup = PropertyGroup('Filter');
   propsEl.appendChild(filterGroup.el);
 
@@ -898,13 +916,13 @@ function buildSynthPanel(config) {
     });
     filterGroup.addChild(filterType);
 
-    const filterFreq = NumberSlider('Cutoff (Hz)', 20, 12000, 10, synth.filter.freq ?? 2000, (val) => {
+    const filterFreq = RandomizableSlider('Cutoff (Hz)', 20, 12000, 10, synth.filter.freq ?? 2000, (val) => {
       synth.filter.freq = val;
       onParamChange();
     });
     filterGroup.addChild(filterFreq);
 
-    const filterQ = NumberSlider('Q', 0.1, 12, 0.1, synth.filter.q ?? 1, (val) => {
+    const filterQ = RandomizableSlider('Q', 0.1, 12, 0.1, synth.filter.q ?? 1, (val) => {
       synth.filter.q = val;
       onParamChange();
     });
@@ -914,7 +932,7 @@ function buildSynthPanel(config) {
   // Distortion / drive (waveshaper) — grit for electric-guitar-style leads
   const driveGroup = PropertyGroup('Distortion');
   propsEl.appendChild(driveGroup.el);
-  const driveInput = NumberSlider('Drive', 0, 1, 0.01, synth.distortion ?? 0, (val) => {
+  const driveInput = RandomizableSlider('Drive', 0, 1, 0.01, synth.distortion ?? 0, (val) => {
     if (val === 0) delete synth.distortion;
     else synth.distortion = val;
     onParamChange();
@@ -955,12 +973,6 @@ function buildLayersPanel(synth) {
     { value: 'file', label: 'File' },
   ];
 
-  const LAYER_FILTER_TYPES = [
-    { value: 'lowpass', label: 'Low-pass' },
-    { value: 'highpass', label: 'High-pass' },
-    { value: 'bandpass', label: 'Band-pass' },
-  ];
-
   synth.layers.forEach((layer, i) => {
     const isFile = layer.type === 'file';
     const label = isFile
@@ -999,7 +1011,7 @@ function buildLayersPanel(synth) {
       });
       layerGroup.addChild(fileSelect);
 
-      const rateInput = NumberSlider('Playback Rate', 0.1, 4, 0.05, layer.playbackRate || 1, (val) => {
+      const rateInput = RandomizableSlider('Playback Rate', 0.1, 4, 0.05, layer.playbackRate ?? 1, (val) => {
         layer.playbackRate = val;
         onParamChange();
       });
@@ -1015,19 +1027,19 @@ function buildLayersPanel(synth) {
       layerGroup.addChild(noiseFilterToggle);
 
       if (layer.filter) {
-        const nfType = Select('Filter Type', LAYER_FILTER_TYPES, layer.filter.type || 'bandpass', (val) => {
+        const nfType = Select('Filter Type', FILTER_TYPES, layer.filter.type || 'bandpass', (val) => {
           layer.filter.type = val;
           onParamChange();
         });
         layerGroup.addChild(nfType);
 
-        const nfFreq = NumberSlider('Filter Freq (Hz)', 20, 12000, 10, layer.filter.freq ?? 1000, (val) => {
+        const nfFreq = RandomizableSlider('Filter Freq (Hz)', 20, 12000, 10, layer.filter.freq ?? 1000, (val) => {
           layer.filter.freq = val;
           onParamChange();
         });
         layerGroup.addChild(nfFreq);
 
-        const nfQ = NumberSlider('Filter Q', 0.1, 12, 0.1, layer.filter.q ?? 1, (val) => {
+        const nfQ = RandomizableSlider('Filter Q', 0.1, 12, 0.1, layer.filter.q ?? 1, (val) => {
           layer.filter.q = val;
           onParamChange();
         });
@@ -1035,31 +1047,38 @@ function buildLayersPanel(synth) {
       }
     } else {
       // ── Oscillator layer fields ──
-      const freqInput = NumberSlider('Frequency (Hz)', 20, 8000, 1, layer.freq || 440, (val) => {
+      const freqInput = RandomizableSlider('Frequency (Hz)', 20, 8000, 1, layer.freq ?? 440, (val) => {
         layer.freq = val;
         onParamChange();
       });
       layerGroup.addChild(freqInput);
 
+      // Pitch sweep — addable. On → glide from Frequency to Freq End over the note.
+      const sweepToggle = Toggle('Pitch sweep', layer.freqEnd !== undefined, (val) => {
+        if (val) layer.freqEnd = rv(layer.freq) ?? 440;
+        else delete layer.freqEnd;
+        onParamChange();
+        buildPropertyPanel();
+      });
+      layerGroup.addChild(sweepToggle);
+
       if (layer.freqEnd !== undefined) {
-        const freqEndInput = NumberSlider('Freq End (Hz)', 0, 8000, 1, layer.freqEnd, (val) => {
-          if (val === 0) delete layer.freqEnd;
-          else layer.freqEnd = val;
+        const freqEndInput = RandomizableSlider('Freq End (Hz)', 20, 8000, 1, layer.freqEnd, (val) => {
+          layer.freqEnd = val;
           onParamChange();
         });
         layerGroup.addChild(freqEndInput);
       }
 
-      const detuneInput = NumberSlider('Detune (cents)', -100, 100, 1, layer.detune || 0, (val) => {
-        if (val === 0) delete layer.detune;
-        else layer.detune = val;
+      const detuneInput = RandomizableSlider('Detune (cents)', -100, 100, 1, layer.detune ?? 0, (val) => {
+        layer.detune = val;
         onParamChange();
       });
       layerGroup.addChild(detuneInput);
     }
 
-    // Gain — shared by both layer types
-    const gainInput = NumberSlider('Gain', 0, 1, 0.01, layer.gain ?? 1, (val) => {
+    // Gain — shared by all layer types
+    const gainInput = RandomizableSlider('Gain', 0, 1, 0.01, layer.gain ?? 1, (val) => {
       layer.gain = val;
       onParamChange();
     });

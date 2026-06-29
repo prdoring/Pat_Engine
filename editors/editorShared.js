@@ -428,6 +428,120 @@ export function RangeInput(label, minBound, maxBound, step, value, onChange) {
   };
 }
 
+// ─── RandomizableSlider ─────────────────────────────────────────────────────
+
+/**
+ * A NumberSlider that can flip to a [min,max] random range. Fixed mode shows the
+ * slider + number input + an [F] toggle; clicking it switches to [R] range mode —
+ * the slider is hidden and a second number input appears (min — max). `value` may
+ * be a number or a [min,max] array; getValue()/onChange emit the same shape, which
+ * is exactly what the engine's synth resolver consumes (Array → randomized per play).
+ */
+export function RandomizableSlider(label, min, max, step, value, onChange) {
+  const container = document.createElement('div');
+  container.className = 'editor-widget editor-number-slider editor-randomizable';
+
+  const lbl = makeLabel(label);
+  const row = document.createElement('div');
+  row.className = 'editor-row';
+
+  let rangeMode = Array.isArray(value);
+  let currentVal = rangeMode ? [...value] : value;
+
+  const toggleBtn = document.createElement('button');
+  toggleBtn.className = 'editor-btn editor-btn-subtle editor-range-toggle';
+
+  const slider = document.createElement('input');
+  slider.type = 'range';
+  slider.min = min; slider.max = max; slider.step = step;
+  slider.className = 'editor-slider';
+
+  const inputA = document.createElement('input');
+  inputA.type = 'number';
+  inputA.min = min; inputA.max = max; inputA.step = step;
+  inputA.className = 'editor-num-input';
+
+  const sep = document.createElement('span');
+  sep.textContent = ' — ';
+  sep.className = 'editor-range-sep';
+
+  const inputB = document.createElement('input');
+  inputB.type = 'number';
+  inputB.min = min; inputB.max = max; inputB.step = step;
+  inputB.className = 'editor-num-input';
+
+  const clamp = (v) => Math.max(min, Math.min(max, isNaN(v) ? min : v));
+
+  function syncDom() {
+    toggleBtn.textContent = rangeMode ? '[R]' : '[F]';
+    toggleBtn.title = rangeMode ? 'Random range (click for fixed)' : 'Fixed (click for random range)';
+    slider.style.display = rangeMode ? 'none' : '';
+    sep.style.display = rangeMode ? '' : 'none';
+    inputB.style.display = rangeMode ? '' : 'none';
+    if (rangeMode) {
+      inputA.value = currentVal[0];
+      inputB.value = currentVal[1];
+    } else {
+      inputA.value = currentVal;
+      slider.value = Math.min(Math.max(currentVal, min), max);
+    }
+  }
+  syncDom();
+
+  slider.addEventListener('input', () => {
+    currentVal = parseFloat(slider.value);
+    inputA.value = currentVal;
+    onChange(currentVal);
+  });
+
+  inputA.addEventListener('change', () => {
+    const v = clamp(parseFloat(inputA.value));
+    if (rangeMode) currentVal = [v, currentVal[1]];
+    else { currentVal = v; slider.value = Math.min(v, max); }
+    syncDom();
+    onChange(currentVal);
+  });
+
+  inputB.addEventListener('change', () => {
+    const v = clamp(parseFloat(inputB.value));
+    currentVal = [currentVal[0], v];
+    syncDom();
+    onChange(currentVal);
+  });
+
+  toggleBtn.addEventListener('click', () => {
+    rangeMode = !rangeMode;
+    if (rangeMode) {
+      const v = Array.isArray(currentVal) ? currentVal[0] : currentVal;
+      currentVal = [v, v];
+    } else {
+      currentVal = Array.isArray(currentVal) ? currentVal[0] : currentVal;
+    }
+    syncDom();
+    onChange(currentVal);
+  });
+
+  row.appendChild(toggleBtn);
+  row.appendChild(slider);
+  row.appendChild(inputA);
+  row.appendChild(sep);
+  row.appendChild(inputB);
+  container.appendChild(lbl);
+  container.appendChild(row);
+
+  return {
+    el: container,
+    getValue: () => currentVal,
+    setValue: (v) => {
+      rangeMode = Array.isArray(v);
+      currentVal = rangeMode ? [...v] : v;
+      syncDom();
+    },
+    onChange: (fn) => { onChange = fn; },
+    destroy: () => container.remove(),
+  };
+}
+
 // ─── ColorInput ────────────────────────────────────────────────────────────
 
 export function ColorInput(label, value, onChange) {

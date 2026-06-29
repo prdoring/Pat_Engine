@@ -58,6 +58,40 @@ test('noise layer resolves gain + optional colour filter', () => {
   assert.equal(layer.freq, undefined);
 });
 
+test('oscillator layer resolves [min,max] freq/freqEnd/detune/gain within bounds', () => {
+  // These are the per-layer fields the soundboard now exposes as RandomizableSlider.
+  for (let i = 0; i < 50; i++) {
+    const r = sm._resolveSynth({
+      layers: [{ type: 'sine', freq: [400, 500], freqEnd: [800, 900], detune: [-5, 5], gain: [0.3, 0.6] }],
+    });
+    const l = r.layers[0];
+    assert.ok(l.freq >= 400 && l.freq <= 500, `freq ${l.freq}`);
+    assert.ok(l.freqEnd >= 800 && l.freqEnd <= 900, `freqEnd ${l.freqEnd}`);
+    assert.ok(l.detune >= -5 && l.detune <= 5, `detune ${l.detune}`);
+    assert.ok(l.gain >= 0.3 && l.gain <= 0.6, `gain ${l.gain}`);
+  }
+});
+
+test('file layer resolves [min,max] gain/playbackRate and passes the path through', () => {
+  for (let i = 0; i < 30; i++) {
+    const r = sm._resolveSynth({ layers: [{ type: 'file', file: '/SFX/x.wav', gain: [0.5, 1], playbackRate: [0.9, 1.1] }] });
+    const l = r.layers[0];
+    assert.equal(l.file, '/SFX/x.wav');
+    assert.ok(l.gain >= 0.5 && l.gain <= 1, `gain ${l.gain}`);
+    assert.ok(l.playbackRate >= 0.9 && l.playbackRate <= 1.1, `rate ${l.playbackRate}`);
+  }
+});
+
+test('envelope + reverb resolve [min,max] ranges', () => {
+  for (let i = 0; i < 30; i++) {
+    const r = sm._resolveSynth({ duration: [0.2, 0.4], attack: [0.005, 0.02], decay: [0.1, 0.3], reverb: [0.1, 0.5] });
+    assert.ok(r.duration >= 0.2 && r.duration <= 0.4, `dur ${r.duration}`);
+    assert.ok(r.attack >= 0.005 && r.attack <= 0.02, `atk ${r.attack}`);
+    assert.ok(r.decay >= 0.1 && r.decay <= 0.3, `dec ${r.decay}`);
+    assert.ok(r.reverb >= 0.1 && r.reverb <= 0.5, `rev ${r.reverb}`);
+  }
+});
+
 test('mixed oscillator + noise layers both survive resolution', () => {
   const r = sm._resolveSynth({
     layers: [

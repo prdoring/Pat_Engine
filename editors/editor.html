@@ -80,6 +80,45 @@
       display: inline;
     }
 
+    /* ─── Sub-tabs (Soundboard hosts Sounds + Music) ───────────── */
+    #tab-soundboard.active { flex-direction: column; overflow: hidden; }
+    .subtab-bar {
+      display: flex;
+      gap: 4px;
+      flex-shrink: 0;
+      padding: 6px 10px 0;
+      background: rgba(8,14,24,0.6);
+      border-bottom: 1px solid #4a3c24;
+    }
+    .subtab-bar .subtab {
+      padding: 5px 16px;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      color: #7a6a4a;
+      background: transparent;
+      border: 1px solid transparent;
+      border-bottom: none;
+      border-radius: 4px 4px 0 0;
+      cursor: pointer;
+      transition: color 0.15s, background 0.15s;
+    }
+    .subtab-bar .subtab:hover { color: #d4a056; }
+    .subtab-bar .subtab.active {
+      color: #d4a056;
+      background: rgba(20,16,10,0.85);
+      border-color: #5a4a30;
+    }
+    .subtab-bar .subtab .unsaved-dot { display: none; color: #cc4422; margin-left: 4px; }
+    .subtab-bar .subtab .unsaved-dot.visible { display: inline; }
+    .subtab-panels { flex: 1; position: relative; overflow: hidden; }
+    .subtab-content {
+      display: none;
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      overflow: auto;
+    }
+    .subtab-content.active { display: flex; }
+
     /* ─── Tab Panels ───────────────────────────────────────────── */
     .tab-panels {
       flex: 1;
@@ -744,82 +783,109 @@
       <button class="tab" data-tab="vfx">VFX<span class="unsaved-dot">&#8226;</span></button>
       <button class="tab" data-tab="sequences">Sequences<span class="unsaved-dot">&#8226;</span></button>
       <button class="tab" data-tab="soundboard">Soundboard<span class="unsaved-dot">&#8226;</span></button>
-      <button class="tab" data-tab="music">Music<span class="unsaved-dot">&#8226;</span></button>
     </div>
     <div class="tab-panels">
       <div class="tab-content active" id="tab-art"></div>
       <div class="tab-content" id="tab-vfx"></div>
       <div class="tab-content" id="tab-sequences"></div>
-      <div class="tab-content" id="tab-soundboard"></div>
-      <div class="tab-content" id="tab-music"></div>
+      <div class="tab-content" id="tab-soundboard">
+        <div class="subtab-bar">
+          <button class="subtab active" data-subtab="sounds">Sounds<span class="unsaved-dot">&#8226;</span></button>
+          <button class="subtab" data-subtab="music">Music<span class="unsaved-dot">&#8226;</span></button>
+        </div>
+        <div class="subtab-panels">
+          <div class="subtab-content active" id="subtab-sounds"></div>
+          <div class="subtab-content" id="subtab-music"></div>
+        </div>
+      </div>
     </div>
   </div>
 
   <script type="module">
-    const TAB_IDS = ['art', 'vfx', 'sequences', 'soundboard', 'music'];
-
-    const editors = {
-      art:        { module: null, mounted: false },
-      vfx:        { module: null, mounted: false },
-      sequences:  { module: null, mounted: false },
-      soundboard: { module: null, mounted: false },
-      music:      { module: null, mounted: false },
+    // Top-level tabs. Soundboard hosts two sub-tabs: Sounds + Music.
+    const TAB_IDS = ['art', 'vfx', 'sequences', 'soundboard'];
+    const SUB_EDITOR = { sounds: 'soundboard', music: 'music' }; // sub-tab id → editor id
+    const PANEL_OF = {                                           // editor id → mount panel id
+      art: 'tab-art', vfx: 'tab-vfx', sequences: 'tab-sequences',
+      soundboard: 'subtab-sounds', music: 'subtab-music',
     };
 
-    let activeTab = null;
+    const editors = {};
+    for (const id of Object.keys(PANEL_OF)) editors[id] = { module: null, mounted: false };
+    const dirtyState = {};
 
-    // ── Tab switching ────────────────────────────────────────────
+    let activeTab = null;
+    let activeSubtab = 'sounds';
+
+    // ── Lazy-load + mount an editor module into its panel ─────────
+    async function mountEditor(editorId) {
+      if (editors[editorId].mounted) return;
+      try {
+        const mod = await import(`/editors/${editorId}Editor.js`);
+        await mod.mount(document.getElementById(PANEL_OF[editorId]));
+        editors[editorId] = { module: mod, mounted: true };
+      } catch (err) {
+        console.error(`Failed to load ${editorId} editor:`, err);
+        const panel = document.getElementById(PANEL_OF[editorId]);
+        panel.innerHTML = `<div style="padding:40px;color:#cc4422">Failed to load ${editorId} editor: ${err.message}</div>`;
+      }
+    }
+
+    // ── Top-level tab switching ──────────────────────────────────
     async function activateTab(tabId) {
       if (activeTab === tabId) return;
 
-      // Update tab bar
-      document.querySelectorAll('.tab-bar .tab').forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.tab === tabId);
-      });
+      document.querySelectorAll('.tab-bar .tab').forEach(btn =>
+        btn.classList.toggle('active', btn.dataset.tab === tabId));
 
-      // Update tab panels — explicitly manage display to prevent
-      // editor inline styles from overriding CSS display:none
+      // Explicitly manage display so editor inline styles can't override display:none
       document.querySelectorAll('.tab-content').forEach(panel => {
         const isActive = panel.id === `tab-${tabId}`;
         panel.classList.toggle('active', isActive);
-        if (!isActive) {
-          panel.style.display = 'none';
-        } else {
-          panel.style.removeProperty('display');
-        }
+        if (!isActive) panel.style.display = 'none'; else panel.style.removeProperty('display');
       });
 
-      // Lazy-load and mount on first activation
-      if (!editors[tabId].mounted) {
-        try {
-          const mod = await import(`/editors/${tabId}Editor.js`);
-          await mod.mount(document.getElementById(`tab-${tabId}`));
-          editors[tabId] = { module: mod, mounted: true };
-        } catch (err) {
-          console.error(`Failed to load ${tabId} editor:`, err);
-          const panel = document.getElementById(`tab-${tabId}`);
-          panel.innerHTML = `<div style="padding:40px;color:#cc4422">Failed to load ${tabId} editor: ${err.message}</div>`;
-        }
-      }
-
       activeTab = tabId;
-      location.hash = tabId;
+      if (tabId === 'soundboard') {
+        await activateSubtab(activeSubtab); // mounts the current sub-editor + sets the hash
+      } else {
+        location.hash = tabId;
+        await mountEditor(tabId);
+      }
     }
 
-    // ── Tab bar click handlers ───────────────────────────────────
-    document.querySelectorAll('.tab-bar .tab').forEach(btn => {
-      btn.addEventListener('click', () => activateTab(btn.dataset.tab));
-    });
+    // ── Soundboard sub-tab switching (Sounds | Music) ────────────
+    async function activateSubtab(subId) {
+      activeSubtab = subId;
+      document.querySelectorAll('.subtab-bar .subtab').forEach(btn =>
+        btn.classList.toggle('active', btn.dataset.subtab === subId));
+      document.querySelectorAll('.subtab-content').forEach(panel => {
+        const isActive = panel.id === `subtab-${subId}`;
+        panel.classList.toggle('active', isActive);
+        if (!isActive) panel.style.display = 'none'; else panel.style.removeProperty('display');
+      });
+      location.hash = subId === 'sounds' ? 'soundboard' : 'music';
+      await mountEditor(SUB_EDITOR[subId]);
+    }
+
+    // The editor whose save()/isDirty() Ctrl+S targets right now.
+    function currentEditorId() {
+      return activeTab === 'soundboard' ? SUB_EDITOR[activeSubtab] : activeTab;
+    }
+
+    // ── Tab + sub-tab click handlers ─────────────────────────────
+    document.querySelectorAll('.tab-bar .tab').forEach(btn =>
+      btn.addEventListener('click', () => activateTab(btn.dataset.tab)));
+    document.querySelectorAll('.subtab-bar .subtab').forEach(btn =>
+      btn.addEventListener('click', () => activateSubtab(btn.dataset.subtab)));
 
     // ── Keyboard shortcuts ───────────────────────────────────────
     document.addEventListener('keydown', (e) => {
       if (e.ctrlKey || e.metaKey) {
         if (e.key === 's' || e.key === 'S') {
           e.preventDefault();
-          // Trigger save on active editor
-          if (activeTab && editors[activeTab].module && editors[activeTab].module.save) {
-            editors[activeTab].module.save();
-          }
+          const ed = editors[currentEditorId()];
+          if (ed && ed.module && ed.module.save) ed.module.save();
         }
         const tabIndex = parseInt(e.key) - 1;
         if (tabIndex >= 0 && tabIndex < TAB_IDS.length) {
@@ -831,25 +897,33 @@
 
     // ── Unsaved changes guard ────────────────────────────────────
     window.addEventListener('beforeunload', (e) => {
-      const hasUnsaved = TAB_IDS.some(id =>
-        editors[id].module && editors[id].module.isDirty && editors[id].module.isDirty()
-      );
-      if (hasUnsaved) {
-        e.preventDefault();
-        e.returnValue = '';
-      }
+      const hasUnsaved = Object.values(editors).some(x =>
+        x.module && x.module.isDirty && x.module.isDirty());
+      if (hasUnsaved) { e.preventDefault(); e.returnValue = ''; }
     });
 
-    // ── Unsaved dot indicator API ────────────────────────────────
-    // Editors can call window.editorSetUnsaved(tabId, dirty)
-    window.editorSetUnsaved = (tabId, dirty) => {
-      const btn = document.querySelector(`.tab[data-tab="${tabId}"] .unsaved-dot`);
-      if (btn) btn.classList.toggle('visible', dirty);
+    // ── Unsaved dot API — editors call editorSetUnsaved(id, dirty) ─
+    // The Sounds + Music sub-editors each light their own sub-tab dot and roll up
+    // into the Soundboard top-level dot.
+    window.editorSetUnsaved = (editorId, dirty) => {
+      dirtyState[editorId] = dirty;
+      if (editorId === 'soundboard' || editorId === 'music') {
+        const subId = editorId === 'soundboard' ? 'sounds' : 'music';
+        const subDot = document.querySelector(`.subtab[data-subtab="${subId}"] .unsaved-dot`);
+        if (subDot) subDot.classList.toggle('visible', dirty);
+        const topDot = document.querySelector('.tab[data-tab="soundboard"] .unsaved-dot');
+        if (topDot) topDot.classList.toggle('visible', !!(dirtyState.soundboard || dirtyState.music));
+      } else {
+        const dot = document.querySelector(`.tab[data-tab="${editorId}"] .unsaved-dot`);
+        if (dot) dot.classList.toggle('visible', dirty);
+      }
     };
 
-    // ── URL hash routing ─────────────────────────────────────────
-    const initialTab = location.hash.slice(1);
-    activateTab(TAB_IDS.includes(initialTab) ? initialTab : 'art');
+    // ── URL hash routing (supports the legacy #music deep link) ──
+    const initial = location.hash.slice(1);
+    if (initial === 'music') { activeSubtab = 'music'; activateTab('soundboard'); }
+    else if (TAB_IDS.includes(initial)) activateTab(initial);
+    else activateTab('art');
   </script>
 </body>
 </html>

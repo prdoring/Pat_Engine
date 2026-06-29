@@ -194,8 +194,11 @@ Node smoke test (`tests/shots.test.js`) guards CI but produces no pixels.
   `window.__shots = { ids, render(id) }` is exposed for programmatic capture.
 
 ## Editors (`/editor`)
-Tab host (`editor.html`) lazy-loads `art`, `vfx`, `sequences`, `soundboard`, `music` editors. All save
-through `POST /api/save-data` (allowlist + `.backups/` rotation). Art/VFX/Sequence editors are driven by
-the manifest, so a new project repoints the manifest instead of editing editor source. The soundboard
-edits sfx.json (incl. vibrato/filter/distortion/noise/MIDI); the music editor is a mixing console for
-`data/music.json` (song picker, vibe scenes, per-stem faders) auditioned live through `MusicDirector`.
+Tab host (`editor.html`) lazy-loads `art`, `vfx`, `sequences`, `soundboard` editors (Soundboard hosts two
+sub-tabs: **Sounds** + **Music**). All save through `POST /api/save-data` (allowlist + `.backups/` rotation).
+Art/VFX/Sequence editors are driven by the manifest, so a new project repoints the manifest instead of
+editing editor source. The soundboard edits sfx.json (incl. vibrato/filter/distortion/noise/MIDI, `[R]`
+range toggles for `[min,max]`); the Music sub-tab is a mixing console for `data/music.json` — song picker +
+new-song, `masterLevel`/`fadeSeconds`,
+stem add/remove/reorder/rename with sound + MIDI-track assignment, and vibe scenes (rename/delete/docs +
+per-stem faders) — auditioned live through `MusicDirector` (track reassignment writes through to sfx.json).
