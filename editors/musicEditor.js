@@ -9,7 +9,7 @@ import { SoundManager } from '/engine/audio/SoundManager.js';
 import { MusicDirector } from '/engine/audio/MusicDirector.js';
 import { MUSIC_SONGS } from '/engine/data/music.js';
 import { SOUND_CONFIG } from '/engine/data/sounds.js';
-import { SaveManager } from './editorShared.js';
+import { SaveManager, modalAlert, modalConfirm, modalPrompt, modalSelect, isModalOpen } from './editorShared.js';
 import {
   newSong, addStem, removeStem, renameStem, reorderStem,
   renameVibe, deleteVibe, setVibeDoc,
@@ -61,6 +61,7 @@ export function mount(el) {
 // Space toggles play/pause — but only when the Music tab is visible and you're not typing.
 function onSpaceKey(e) {
   if (e.code !== 'Space' || e.repeat) return;
+  if (isModalOpen()) return;
   if (!container || container.offsetParent === null) return;
   if (/^(input|textarea|select)$/i.test(e.target?.tagName || '')) return;
   e.preventDefault();
@@ -82,7 +83,7 @@ export function isDirty() { return saveManager?.isDirty() ?? false; }
 async function doSave() {
   if (!saveManager.isDirty()) return;
   try { await saveManager.save({ songs: workingSongs }); }
-  catch (err) { alert('Save failed: ' + err.message); }
+  catch (err) { modalAlert('Save failed: ' + err.message, { title: 'Save failed' }); }
 }
 
 // ─── Scenes + live mix ───────────────────────────────────────────────────────
@@ -176,19 +177,20 @@ function structuralEdit({ resync = true } = {}) {
   buildUI();
 }
 
-function addVibe() {
-  const name = (prompt('New vibe name:') || '').trim();
+async function addVibe() {
+  const name = await modalPrompt('', { title: 'New vibe', placeholder: 'vibe name', confirmLabel: 'Add',
+    validate: v => !v ? 'Enter a name' : (song().intensity && song().intensity[v]) ? 'That vibe already exists' : '' });
   if (!name) return;
   song().intensity = song().intensity || {};
-  if (!song().intensity[name]) song().intensity[name] = {};
+  song().intensity[name] = song().intensity[name] || {};
   saveManager.markDirty();
   setScene(name);
 }
 
-function newSongPrompt() {
-  let id = (prompt('New song id:') || '').trim();
+async function newSongPrompt() {
+  const id = await modalPrompt('', { title: 'New song', placeholder: 'song id', confirmLabel: 'Create',
+    validate: v => !v ? 'Enter an id' : workingSongs[v] ? 'That id already exists' : '' });
   if (!id) return;
-  if (workingSongs[id]) { alert(`Song "${id}" already exists`); return; }
   workingSongs[id] = newSong();
   currentSongId = id;
   activeTier = null; soloStem = null; muted.clear(); selectedStem = null;
@@ -226,33 +228,23 @@ function pushAllStems() {
 async function importMidiInto(stem) {
   let files = [];
   try { files = await fetch('/api/midi-files').then(r => (r.ok ? r.json() : [])); } catch {}
-  if (!files.length) { alert('No .mid files found in assets/MIDI/.'); return; }
-  const file = files.length === 1 ? files[0] : promptPick('Import which MIDI file?', files);
+  if (!files.length) { modalAlert('No .mid files found in assets/MIDI/.', { title: 'Import MIDI' }); return; }
+  const file = files.length === 1 ? files[0]
+    : await modalSelect('Import notes from which MIDI file?', files.map(f => ({ value: f, label: f.split('/').pop() })), { title: 'Import MIDI' });
   if (!file) return;
   await soundManager.loadMidi(file);
   const data = soundManager.midiData.get(file);
-  if (!data || !data.tracks?.length) { alert('Could not parse ' + file); return; }
-  const labels = data.tracks.map((t, i) => `${t.name} (${t.notes.length} notes)`);
-  const ti = data.tracks.length === 1 ? 0 : promptPickIndex('Import which track?', labels);
-  if (ti == null) return;
+  if (!data || !data.tracks?.length) { modalAlert('Could not parse ' + file, { title: 'Import MIDI' }); return; }
+  let ti = 0;
+  if (data.tracks.length > 1) {
+    ti = await modalSelect('Import which track?', data.tracks.map((t, i) => ({ value: i, label: t.name, sub: `${t.notes.length} notes` })), { title: 'Import track' });
+    if (ti == null) return;
+  }
   ensureTiming(song());
   stem.notes = importMidiTrack(data.tracks[ti].notes, song().bpm, song().grid);
   saveManager.markDirty();
   if (playing) music.updateStemNotes(stem.name, stem.notes, song());
   buildUI();
-}
-
-function promptPick(msg, opts) {
-  const r = prompt(`${msg}\n` + opts.map((o, i) => `${i}: ${o}`).join('\n'), '0');
-  if (r == null) return null;
-  const i = parseInt(r, 10);
-  return opts[i] ?? null;
-}
-function promptPickIndex(msg, opts) {
-  const r = prompt(`${msg}\n` + opts.map((o, i) => `${i}: ${o}`).join('\n'), '0');
-  if (r == null) return null;
-  const i = parseInt(r, 10);
-  return i >= 0 && i < opts.length ? i : null;
 }
 
 // ─── UI ──────────────────────────────────────────────────────────────────────
@@ -454,17 +446,17 @@ function buildVibeEditRow() {
   const row = el('div', 'me-vibe-edit');
 
   const renameBtn = el('button', 'me-mini', '✎ rename');
-  renameBtn.addEventListener('click', () => {
-    const next = (prompt('Rename vibe:', activeTier) || '').trim();
-    if (!next) return;
+  renameBtn.addEventListener('click', async () => {
+    const next = await modalPrompt('', { title: 'Rename vibe', value: activeTier, confirmLabel: 'Rename',
+      validate: v => !v ? 'Enter a name' : (v !== activeTier && song().intensity[v]) ? 'That vibe already exists' : '' });
+    if (!next || next === activeTier) return;
     if (renameVibe(song(), activeTier, next)) { activeTier = next; structuralEdit(); }
-    else alert('Could not rename (name blank or already exists).');
   });
   row.appendChild(renameBtn);
 
   const delBtn = el('button', 'me-mini danger', '🗑 delete');
-  delBtn.addEventListener('click', () => {
-    if (!confirm(`Delete vibe "${activeTier}"?`)) return;
+  delBtn.addEventListener('click', async () => {
+    if (!await modalConfirm(`Delete vibe "${activeTier}"?`, { title: 'Delete vibe', confirmLabel: 'Delete', danger: true })) return;
     deleteVibe(song(), activeTier);
     activeTier = null;
     structuralEdit();
@@ -546,11 +538,11 @@ function buildPianoRollPanel() {
 
   const rename = el('button', 'me-mini', '✎');
   rename.title = 'Rename stem';
-  rename.addEventListener('click', () => {
-    const next = (prompt('Rename stem:', stem.name) || '').trim();
-    if (!next) return;
+  rename.addEventListener('click', async () => {
+    const next = await modalPrompt('', { title: 'Rename stem', value: stem.name, confirmLabel: 'Rename',
+      validate: v => !v ? 'Enter a name' : (v !== stem.name && song().stems.some(s => s.name === v)) ? 'That name is taken' : '' });
+    if (!next || next === stem.name) return;
     if (renameStem(song(), stem.name, next)) structuralEdit();
-    else alert('Could not rename (name blank or already exists).');
   });
   head.appendChild(rename);
 
@@ -569,12 +561,11 @@ function buildPianoRollPanel() {
   head.appendChild(imp);
 
   const clr = el('button', 'me-mini', 'Clear');
-  clr.addEventListener('click', () => {
-    if (!stem.notes.length || confirm(`Clear all notes in "${stem.name}"?`)) {
-      stem.notes = []; saveManager.markDirty();
-      if (playing) music.updateStemNotes(stem.name, stem.notes, song());
-      buildUI();
-    }
+  clr.addEventListener('click', async () => {
+    if (stem.notes.length && !await modalConfirm(`Clear all notes in "${stem.name}"?`, { title: 'Clear notes', confirmLabel: 'Clear', danger: true })) return;
+    stem.notes = []; saveManager.markDirty();
+    if (playing) music.updateStemNotes(stem.name, stem.notes, song());
+    buildUI();
   });
   head.appendChild(clr);
 
@@ -583,8 +574,8 @@ function buildPianoRollPanel() {
   const down = el('button', 'me-mini', '↓'); down.disabled = idx >= song().stems.length - 1;
   down.addEventListener('click', () => { if (reorderStem(song(), idx, +1)) structuralEdit({ resync: false }); });
   const rm = el('button', 'me-mini danger', '✕ remove');
-  rm.addEventListener('click', () => {
-    if (!confirm(`Remove stem "${stem.name}"?`)) return;
+  rm.addEventListener('click', async () => {
+    if (!await modalConfirm(`Remove stem "${stem.name}"?`, { title: 'Remove stem', confirmLabel: 'Remove', danger: true })) return;
     removeStem(song(), stem.name); selectedStem = null; structuralEdit();
   });
   head.appendChild(up); head.appendChild(down); head.appendChild(rm);

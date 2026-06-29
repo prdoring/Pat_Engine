@@ -7,6 +7,7 @@ import {
   SaveManager,
   NumberSlider, RandomizableSlider, ColorInput, Select, TextInput, Toggle, Button,
   PropertyGroup, createResizer,
+  modalAlert, modalConfirm, modalPrompt,
 } from './editorShared.js';
 
 // The 8 Web Audio BiquadFilter types the engine supports (SoundManager._resolveFilter
@@ -1127,11 +1128,10 @@ function buildLayersPanel(synth) {
 
 // ─── CRUD ──────────────────────────────────────────────────────────────────
 
-function createNewSound() {
-  let id = prompt('Sound ID (camelCase):');
+async function createNewSound() {
+  const id = await modalPrompt('', { title: 'New sound', placeholder: 'soundId (camelCase)', confirmLabel: 'Create',
+    validate: v => !v ? 'Enter an id' : workingData[v] ? 'That id already exists' : '' });
   if (!id) return;
-  id = id.trim();
-  if (workingData[id]) { alert(`Sound "${id}" already exists`); return; }
   workingData[id] = {
     synth: { layers: [{ type: 'sine', freq: 440, gain: 1.0 }], duration: 0.5, attack: 0.01, decay: 0.49 },
     volume: 0.3,
@@ -1146,9 +1146,9 @@ function createNewSound() {
   buildPropertyPanel();
 }
 
-function deleteSound() {
+async function deleteSound() {
   if (!selectedId) return;
-  if (!confirm(`Delete sound "${selectedId}"?`)) return;
+  if (!await modalConfirm(`Delete sound "${selectedId}"?`, { title: 'Delete sound', confirmLabel: 'Delete', danger: true })) return;
   delete workingData[selectedId];
   saveManager.markDirty();
   selectedId = null;
@@ -1157,12 +1157,11 @@ function deleteSound() {
   buildPropertyPanel();
 }
 
-function duplicateSound() {
+async function duplicateSound() {
   if (!selectedId) return;
-  let id = prompt('New sound ID:', selectedId + 'Copy');
+  const id = await modalPrompt('', { title: 'Duplicate sound', value: selectedId + 'Copy', confirmLabel: 'Duplicate',
+    validate: v => !v ? 'Enter an id' : workingData[v] ? 'That id already exists' : '' });
   if (!id) return;
-  id = id.trim();
-  if (workingData[id]) { alert(`Sound "${id}" already exists`); return; }
   workingData[id] = JSON.parse(JSON.stringify(workingData[selectedId]));
   saveManager.markDirty();
   selectedId = id;
@@ -1180,6 +1179,6 @@ async function doSave() {
     const fullData = { categories, sounds: workingData };
     await saveManager.save(fullData);
   } catch (err) {
-    alert('Save failed: ' + err.message);
+    modalAlert('Save failed: ' + err.message, { title: 'Save failed' });
   }
 }

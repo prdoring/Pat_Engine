@@ -11,6 +11,7 @@
 import {
   addNote, moveNote, resizeNote, deleteNote, setVelocity, loopBeats, PITCH_MIN, PITCH_MAX,
 } from './midiModel.js';
+import { isModalOpen } from './editorShared.js';
 
 const GUTTER = 44;  // piano-key gutter width (px)
 const MINI = 16;    // top minimap height
@@ -232,7 +233,7 @@ export function createPianoRoll(container, { onEdit = () => {}, getPhase = () =>
   }
 
   function onKey(e) {
-    if (!wrap.offsetParent) return;
+    if (!wrap.offsetParent || isModalOpen()) return;
     if (/^(input|textarea|select)$/i.test(e.target?.tagName || '')) return;
     if ((e.key === 'Delete' || e.key === 'Backspace') && selected) { e.preventDefault(); deleteNote(pattern, selected); selected = null; onEdit(pattern); draw(); }
   }
