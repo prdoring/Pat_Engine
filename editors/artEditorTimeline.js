@@ -8,7 +8,7 @@
 // preview each frame). Transport feel mirrors the music editor.
 
 import { ctx, getShapeAtPath } from './artEditorCtx.js';
-import { Button, Select, Toggle } from './editorShared.js';
+import { Button, Toggle } from './editorShared.js';
 import { renderPreview } from './artEditorPreview.js';
 import {
   clipMeta, ensureClip, setClipMeta, listTracks, getTrack, setKeyframe,
@@ -77,15 +77,29 @@ export function createArtTimeline(container) {
     stopBtn.el.title = 'Stop — rewind playhead to 0 (←)';
     bar.appendChild(stopBtn.el);
 
-    // clip selector (key target): "*" + every state
-    const states = (ctx.discoveredStates || []).filter((s) => s !== 'BASE');
-    const opts = [{ value: '*', label: 'Always (every state)' }, ...states.map((s) => ({ value: s, label: s }))];
-    bar.appendChild(Select('Animate', opts, ck, (v) => {
-      ctx.keyTargetClip = v;
-      if (v !== '*') { ctx.previewState = v; ctx.currentEditState = v; ctx.rebuildStateBar?.(); }
-      ctx.playhead = 0; scrollX = 0;
-      refresh(); ctx.rebuildProps?.(); renderPreview();
-    }).el);
+    // Key target: ambient "*" (composites under every state) vs the state selected
+    // in the top state bar. The state bar is the single state selector — this only
+    // chooses whether you're keying the always-on ambient clip or the current
+    // state's clip, without leaving that state. (Replaces a redundant state dropdown
+    // that duplicated the top bar and only synced one way.)
+    const curState = (ctx.currentEditState && ctx.currentEditState !== 'BASE') ? ctx.currentEditState : null;
+    const seg = document.createElement('div'); seg.className = 'kf-keyseg';
+    const segLbl = document.createElement('span'); segLbl.className = 'kf-seglabel'; segLbl.textContent = 'Key:';
+    seg.appendChild(segLbl);
+    const segBtn = (label, val, title) => {
+      const b = document.createElement('button');
+      b.className = 'kf-segbtn' + (ck === val ? ' active' : '');
+      b.textContent = label; b.title = title;
+      b.addEventListener('click', () => {
+        if (ctx.keyTargetClip === val) return;
+        ctx.keyTargetClip = val; ctx.playhead = 0; scrollX = 0;
+        refresh(); ctx.rebuildProps?.(); renderPreview();
+      });
+      return b;
+    };
+    seg.appendChild(segBtn('✶ Always', '*', 'Key the ambient clip — composites under every state'));
+    if (curState) seg.appendChild(segBtn(clip2(curState, 10), curState, `Key the "${curState}" state clip`));
+    bar.appendChild(seg);
 
     if (!clip) {
       // Clip not enabled yet for this key target.
@@ -425,6 +439,11 @@ function injectStyle() {
   .kf-dur input{width:52px;background:#11161f;border:1px solid #2a3a4a;color:#cdd6e4;font-size:11px;padding:1px 4px;border-radius:3px}
   .kf-unit{color:#5f7088;font-size:10px}
   .kf-time{color:#7a8aa0;font-size:11px;font-family:monospace}
+  .kf-keyseg{display:inline-flex;align-items:center;gap:3px}
+  .kf-seglabel{color:#7a8aa0;font-size:11px}
+  .kf-segbtn{background:#11161f;border:1px solid #2a3a4a;color:#9fb0c4;font-size:11px;padding:1px 7px;border-radius:3px;cursor:pointer}
+  .kf-segbtn:hover{border-color:#3a4a5e}
+  .kf-segbtn.active{background:#1c2636;border-color:#d4a056;color:#d4a056}
   .kf-armed{color:#e0543a;font-size:10px;font-weight:bold;font-family:monospace}
   .kf-hint{color:#4a5a70;font-size:9px;margin-left:auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   `;

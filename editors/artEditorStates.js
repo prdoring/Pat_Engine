@@ -288,9 +288,19 @@ function deleteStateEverywhere(artDef, stateName) {
 }
 
 function rebuildPropsForState() {
+  // A state change must move EVERY state-aware pane together so an edit always lands
+  // in the state you see selected — no decoupled panes.
+  // The state bar is the single state selector, so keep the timeline's key-target in
+  // lockstep: key into the selected state's clip (BASE → the ambient "*" clip). The
+  // timeline's "Key" toggle can still switch to ambient without leaving the state.
+  ctx.keyTargetClip = (ctx.currentEditState && ctx.currentEditState !== 'BASE') ? ctx.currentEditState : '*';
+  ctx.rebuildTimeline?.();          // timeline tracks + Key toggle
+  ctx.rebuildTree?.();              // per-state override dots (tree.js keys on currentEditState)
   if (ctx.selectedShapePath !== null) {
-    ctx.rebuildProps();
+    ctx.rebuildProps();            // props panel write-target + keyframe clip label
   } else {
     ctx.clearProps();
   }
+  // Reflect the new state in the preview immediately, even while paused.
+  if (!ctx.animPlaying) ctx.renderPreview?.();
 }

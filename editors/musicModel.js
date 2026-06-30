@@ -40,6 +40,23 @@ export function addStem(song, { name, sound = '', gain = 0.5 } = {}) {
   return stem;
 }
 
+/**
+ * Clone a stem (sound, gain, notes) under a new unique name, replicating its level in every
+ * intensity tier so the copy mixes identically. Returns the new stem, or null if `name` is gone.
+ */
+export function cloneStem(song, name) {
+  normalizeSong(song);
+  const src = song.stems.find(s => s.name === name);
+  if (!src) return null;
+  const copy = JSON.parse(JSON.stringify(src));
+  copy.name = uniqueStemName(song, `${src.name} copy`);
+  song.stems.push(copy);
+  for (const tier of Object.values(song.intensity)) {
+    if (Object.prototype.hasOwnProperty.call(tier, name)) tier[copy.name] = tier[name];
+  }
+  return copy;
+}
+
 /** Remove a stem by name, dropping it from every intensity tier. Returns true if removed. */
 export function removeStem(song, name) {
   normalizeSong(song);
@@ -96,6 +113,19 @@ export function renameVibe(song, oldName, newName) {
   return true;
 }
 
+/** Duplicate a vibe/intensity tier (its level map + doc) under `newName`. Returns true if cloned. */
+export function cloneVibe(song, name, newName) {
+  normalizeSong(song);
+  newName = (newName || '').trim();
+  if (!song.intensity[name] || !newName || song.intensity[newName]) return false;
+  song.intensity[newName] = JSON.parse(JSON.stringify(song.intensity[name]));
+  if (song.vibeDocs && song.vibeDocs[name] != null) {
+    song.vibeDocs = song.vibeDocs || {};
+    song.vibeDocs[newName] = song.vibeDocs[name];
+  }
+  return true;
+}
+
 /** Delete a vibe/intensity tier (and its doc). Returns true if deleted. */
 export function deleteVibe(song, name) {
   normalizeSong(song);
@@ -111,4 +141,41 @@ export function setVibeDoc(song, name, text) {
   if (!text) { if (song.vibeDocs) delete song.vibeDocs[name]; return; }
   song.vibeDocs = song.vibeDocs || {};
   song.vibeDocs[name] = text;
+}
+
+// ─── Song-level helpers (operate on the songs map: { <songId>: song }) ──────────
+
+/** A song id not already used, derived from `base` ("song", "song2"…). */
+export function uniqueSongId(songs, base = 'song') {
+  base = base || 'song';
+  if (!songs[base]) return base;
+  let n = 2;
+  while (songs[`${base}${n}`]) n++;
+  return `${base}${n}`;
+}
+
+/** Rename a song id in place, preserving key order. Returns true if renamed. */
+export function renameSong(songs, oldId, newId) {
+  newId = (newId || '').trim();
+  if (!newId || newId === oldId || !songs[oldId] || songs[newId]) return false;
+  const rebuilt = {};
+  for (const k of Object.keys(songs)) rebuilt[k === oldId ? newId : k] = songs[k];
+  for (const k of Object.keys(songs)) delete songs[k];
+  Object.assign(songs, rebuilt);
+  return true;
+}
+
+/** Deep-clone a song under `newId` (appended last). Returns true if duplicated. */
+export function duplicateSong(songs, id, newId) {
+  newId = (newId || '').trim();
+  if (!newId || !songs[id] || songs[newId]) return false;
+  songs[newId] = JSON.parse(JSON.stringify(songs[id]));
+  return true;
+}
+
+/** Delete a song by id. Returns true if removed. */
+export function deleteSong(songs, id) {
+  if (!songs[id]) return false;
+  delete songs[id];
+  return true;
 }

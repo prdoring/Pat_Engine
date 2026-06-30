@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 const {
   newSong, uniqueStemName, addStem, removeStem, renameStem,
   reorderStem, renameVibe, deleteVibe, setVibeDoc,
+  cloneStem, cloneVibe, uniqueSongId, renameSong, duplicateSong, deleteSong,
 } = await import('/editors/musicModel.js');
 
 // A small song fixture, fresh per test (helpers mutate in place).
@@ -97,4 +98,50 @@ test('setVibeDoc sets and clears', () => {
   assert.equal(s.vibeDocs.calm, 'serene');
   setVibeDoc(s, 'calm', '');
   assert.equal(s.vibeDocs.calm, undefined);
+});
+
+test('cloneStem copies sound/gain/notes + every tier level under a unique name', () => {
+  const s = make();
+  s.stems[1].notes = [{ beat: 0, len: 1, midi: 60, vel: 0.8 }];
+  const copy = cloneStem(s, 'lead');
+  assert.equal(copy.name, 'lead copy');
+  assert.equal(copy.sound, 'cgLead');
+  assert.equal(copy.gain, 0.55);
+  assert.deepEqual(copy.notes, [{ beat: 0, len: 1, midi: 60, vel: 0.8 }]);
+  copy.notes[0].midi = 72; // deep copy — original untouched
+  assert.equal(s.stems[1].notes[0].midi, 60);
+  assert.equal(s.intensity.full['lead copy'], 0.6); // replicated where the source had a level
+  assert.equal('lead copy' in s.intensity.calm, false); // and only there
+  assert.equal(cloneStem(s, 'ghost'), null);
+});
+
+test('cloneVibe duplicates the level map + doc and rejects collisions', () => {
+  const s = make();
+  assert.equal(cloneVibe(s, 'full', 'epic'), true);
+  assert.deepEqual(s.intensity.epic, { bass: 0.6, lead: 0.6 });
+  s.intensity.epic.bass = 0.1; // deep copy
+  assert.equal(s.intensity.full.bass, 0.6);
+  assert.equal(s.vibeDocs.epic, 'big');
+  assert.equal(cloneVibe(s, 'full', 'calm'), false, 'target exists');
+  assert.equal(cloneVibe(s, 'ghost', 'x'), false, 'source missing');
+});
+
+test('song map helpers: uniqueSongId / rename / duplicate / delete', () => {
+  const songs = { intro: newSong(), loop: newSong() };
+  assert.equal(uniqueSongId(songs, 'intro'), 'intro2');
+  assert.equal(uniqueSongId(songs, 'fresh'), 'fresh');
+
+  assert.equal(renameSong(songs, 'intro', 'opening'), true);
+  assert.deepEqual(Object.keys(songs), ['opening', 'loop'], 'rename preserves order');
+  assert.equal(renameSong(songs, 'opening', 'loop'), false, 'target exists');
+  assert.equal(renameSong(songs, 'ghost', 'x'), false);
+
+  assert.equal(duplicateSong(songs, 'loop', 'loop2'), true);
+  assert.equal(Object.keys(songs).length, 3);
+  songs.loop2.bpm = 200;
+  assert.notEqual(songs.loop.bpm, 200, 'duplicate is a deep clone');
+
+  assert.equal(deleteSong(songs, 'opening'), true);
+  assert.equal(songs.opening, undefined);
+  assert.equal(deleteSong(songs, 'opening'), false);
 });

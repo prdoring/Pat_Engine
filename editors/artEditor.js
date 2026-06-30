@@ -9,7 +9,7 @@ import { buildStateBar, discoverStates } from './artEditorStates.js';
 import { createHistory } from './artHistory.js';
 import { buildSidebarShapeTree, deleteSelectedShape, duplicateSelectedShape, moveSelectedShape, mirrorSelectedShape, copySelectedShape, pasteShape } from './artEditorTree.js';
 import { buildShapeProps } from './artEditorProps.js';
-import { startAnimation, stopAnimation, buildControls, setupPreviewInteraction, nudgeSelectedShape } from './artEditorPreview.js';
+import { startAnimation, stopAnimation, buildControls, setupPreviewInteraction, nudgeSelectedShape, renderPreview } from './artEditorPreview.js';
 import { createArtTimeline } from './artEditorTimeline.js';
 import { deleteKeyframe } from './artKeyframes.js';
 
@@ -36,6 +36,7 @@ export async function mount(el) {
   ctx.rebuildSaveRow = rebuildSaveRow;
   ctx.startAnimation = startAnimation;
   ctx.stopAnimation = stopAnimation;
+  ctx.renderPreview = renderPreview;
   ctx.historyInit = historyInit;
   ctx.reloadCollections = reloadCollections;
   ctx.rebuildTimeline = () => ctx.timeline?.refresh();
@@ -227,19 +228,26 @@ function buildUI() {
   ctx.stateBarEl.style.display = 'none';
   center.appendChild(ctx.stateBarEl);
 
+  // Preview: a fixed-height, resizable pane. The timeline below is the column's
+  // single elastic element, so this divider trades space between the two — drag it
+  // up (shrink the preview) and the timeline grows to fill, with no whitespace
+  // dead-zone. (Two fixed siblings in a flex column would pool the slack as a gap.)
   ctx.previewArea = document.createElement('div');
-  ctx.previewArea.style.cssText = 'flex:1 1 320px;min-height:0;display:flex;justify-content:center;align-items:center;padding:8px;overflow:hidden;';
+  ctx.previewArea.style.cssText = 'flex:0 1 auto;height:340px;min-height:120px;display:flex;justify-content:center;align-items:center;padding:8px;overflow:hidden;';
   center.appendChild(ctx.previewArea);
-  center.appendChild(createResizer('vertical', ctx.previewArea, { min: 150, max: 600, prop: 'flexBasis' }).el);
+  // prop:'height' (not flexBasis) so the resizer never flips the preview to
+  // flex-grow:0 — that lock is what broke the column's height distribution.
+  center.appendChild(createResizer('vertical', ctx.previewArea, { min: 150, max: 680, prop: 'height' }).el);
 
   ctx.controlsEl = document.createElement('div');
   ctx.controlsEl.style.cssText = 'display:flex;gap:8px;padding:4px 12px;align-items:center;flex-wrap:wrap;flex-shrink:0;';
   center.appendChild(ctx.controlsEl);
 
-  // Keyframe timeline (collapsible, its own vertical resizer) below the controls.
+  // Keyframe timeline — the elastic filler at the bottom of the center column. It
+  // takes exactly the space the preview leaves; its canvas resizes to fill, and a
+  // tall track list scrolls internally rather than overflowing or clipping.
   const timelineHost = document.createElement('div');
-  timelineHost.style.cssText = 'height:150px;min-height:0;display:flex;flex-direction:column;flex-shrink:0;overflow:hidden;';
-  center.appendChild(createResizer('vertical', timelineHost, { min: 0, max: 460, prop: 'height', invert: true }).el);
+  timelineHost.style.cssText = 'flex:1 1 0;min-height:0;display:flex;flex-direction:column;overflow:hidden;';
   center.appendChild(timelineHost);
   ctx.timeline = createArtTimeline(timelineHost);
 
@@ -372,6 +380,10 @@ function markDirty() {
   ctx.saveManagers[ctx.currentFileKey].markDirty();
   rebuildSaveRow();
   scheduleCommit();
+  // While the animation loop is paused, edits and on-canvas drags wouldn't repaint
+  // the preview (the rAF tick is the only thing that calls renderPreview). Draw one
+  // frame so changes show live even when paused.
+  if (ctx.preview && !ctx.animPlaying) renderPreview();
 }
 
 function clearProps() {

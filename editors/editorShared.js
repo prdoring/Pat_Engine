@@ -1264,8 +1264,10 @@ let _modalOpen = 0;
 export function isModalOpen() { return _modalOpen > 0; }
 
 function mk(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
-function modalBtn(label, variant, onClick) { const b = mk('button', 'editor-modal-btn' + (variant ? ' ' + variant : ''), label); b.addEventListener('click', onClick); return b; }
-function btnRow(...kids) { const r = mk('div', 'editor-modal-btns'); kids.forEach(k => r.appendChild(k)); return r; }
+/** A themed modal button. Exported so editors can compose custom dialogs via openModal(). */
+export function modalBtn(label, variant, onClick) { const b = mk('button', 'editor-modal-btn' + (variant ? ' ' + variant : ''), label); b.addEventListener('click', onClick); return b; }
+/** A right-aligned row of modal buttons. */
+export function btnRow(...kids) { const r = mk('div', 'editor-modal-btns'); kids.forEach(k => r.appendChild(k)); return r; }
 
 function injectModalStyle() {
   if (document.getElementById('editor-modal-style')) return;
@@ -1277,6 +1279,10 @@ function injectModalStyle() {
   .editor-modal-msg{color:#c9b48a;font-size:13px;margin-bottom:12px;white-space:pre-wrap;line-height:1.45}
   .editor-modal-input{width:100%;box-sizing:border-box;background:#0e0a05;color:#e0c98a;border:1px solid #5a4a30;border-radius:4px;padding:8px 10px;font:13px 'Courier New',monospace;margin-bottom:4px}
   .editor-modal-input:focus{border-color:#c9a227;outline:none}
+  .editor-modal-textarea{width:100%;box-sizing:border-box;background:#0e0a05;color:#e0c98a;border:1px solid #5a4a30;border-radius:4px;padding:8px 10px;font:12px 'Courier New',monospace;line-height:1.4;resize:vertical;min-height:120px}
+  .editor-modal-textarea:focus{border-color:#c9a227;outline:none}
+  .editor-modal-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:8px 0}
+  .editor-modal-label{color:#9a875a;font-size:12px}
   .editor-modal-error{color:#e08a6a;font-size:11px;min-height:14px;margin-bottom:6px}
   .editor-modal-btns{display:flex;justify-content:flex-end;gap:8px;margin-top:8px}
   .editor-modal-btn{padding:6px 16px;border-radius:4px;font:13px system-ui,sans-serif;cursor:pointer;border:1px solid #5a4a30;background:#2a2118;color:#c9b48a}
@@ -1293,9 +1299,10 @@ function injectModalStyle() {
 
 /**
  * Open a modal. `render(box, close)` fills the dialog and may return `{ onEnter }`.
- * Escape / backdrop click resolve with `cancelValue`.
+ * Escape / backdrop click resolve with `cancelValue`. Exported so editors can build
+ * bespoke themed dialogs (combined with modalBtn / btnRow) beyond the prompt/select helpers.
  */
-function openModal({ title = '', render, cancelValue }) {
+export function openModal({ title = '', render, cancelValue }) {
   injectModalStyle();
   _modalOpen++;
   return new Promise((resolve) => {

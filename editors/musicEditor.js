@@ -9,12 +9,15 @@ import { SoundManager } from '/engine/audio/SoundManager.js';
 import { MusicDirector } from '/engine/audio/MusicDirector.js';
 import { MUSIC_SONGS } from '/engine/data/music.js';
 import { SOUND_CONFIG } from '/engine/data/sounds.js';
-import { SaveManager, modalAlert, modalConfirm, modalPrompt, modalSelect, isModalOpen } from './editorShared.js';
+import { SaveManager, modalAlert, modalConfirm, modalPrompt, modalSelect, isModalOpen, openModal, modalBtn, btnRow } from './editorShared.js';
 import {
   newSong, addStem, removeStem, renameStem, reorderStem,
   renameVibe, deleteVibe, setVibeDoc,
+  cloneStem, cloneVibe, uniqueSongId, renameSong, duplicateSong, deleteSong,
 } from './musicModel.js';
-import { importMidiTrack } from './midiModel.js';
+import { importMidiTrack, snap as snapBeat, sortNotes, PITCH_MIN, PITCH_MAX } from './midiModel.js';
+import { importAbc, stemToAbc } from './abcModel.js';
+import { parseMidi } from '/engine/audio/midi.js';
 import { createPianoRoll } from './pianoRoll.js';
 
 let container = null;
@@ -58,6 +61,9 @@ export function mount(el) {
 
   undoStack = [snap()]; redoStack = [];
   window.addEventListener('keydown', onMusicKey);
+  container.addEventListener('dragover', onDragOver);
+  container.addEventListener('dragleave', onDragLeave);
+  container.addEventListener('drop', onDrop);
 
   injectStyle();
   buildUI();
@@ -81,6 +87,10 @@ export function unmount() {
   try { music?.stop({ fadeOut: 0.1 }); } catch {}
   try { pianoRoll?.destroy(); } catch {}
   window.removeEventListener('keydown', onMusicKey);
+  container?.removeEventListener('dragover', onDragOver);
+  container?.removeEventListener('dragleave', onDragLeave);
+  container?.removeEventListener('drop', onDrop);
+  if (dropHintEl) { dropHintEl.remove(); dropHintEl = null; }
   pianoRoll = null;
   playing = false;
   container = null;
@@ -198,7 +208,7 @@ function toggleTransport() {
 }
 
 function updateTransportBtn() {
-  for (const b of playBtns) { b.textContent = playing ? '❚❚' : '▶'; b.className = 'me-tbtn me-tplay' + (playing ? ' playing' : ''); }
+  for (const b of playBtns) { b.textContent = playing ? '❚❚' : '▶'; b.className = 'me-tcell me-tplay' + (playing ? ' playing' : ''); }
 }
 
 function setScene(tier) {
@@ -249,6 +259,44 @@ async function newSongPrompt() {
   buildUI();
 }
 
+async function dupSongPrompt() {
+  if (!currentSongId) return;
+  const id = await modalPrompt('', { title: 'Duplicate song', value: uniqueSongId(workingSongs, currentSongId + '-copy'), confirmLabel: 'Duplicate',
+    validate: v => !v ? 'Enter an id' : workingSongs[v] ? 'That id already exists' : '' });
+  if (!id) return;
+  if (!duplicateSong(workingSongs, currentSongId, id)) return;
+  currentSongId = id;
+  activeTier = null; soloStem = null; muted.clear(); selectedStem = null;
+  if (playing) stop();
+  saveManager.markDirty();
+  commitUndo();
+  buildUI();
+}
+
+async function renameSongPrompt() {
+  if (!currentSongId) return;
+  const next = await modalPrompt('', { title: 'Rename song', value: currentSongId, confirmLabel: 'Rename',
+    validate: v => !v ? 'Enter an id' : (v !== currentSongId && workingSongs[v]) ? 'That id already exists' : '' });
+  if (!next || next === currentSongId) return;
+  if (!renameSong(workingSongs, currentSongId, next)) return;
+  currentSongId = next;
+  saveManager.markDirty();
+  commitUndo();
+  buildUI();
+}
+
+async function deleteSongPrompt() {
+  if (!currentSongId) return;
+  if (!await modalConfirm(`Delete song "${currentSongId}"? This cannot be undone after saving.`, { title: 'Delete song', confirmLabel: 'Delete', danger: true })) return;
+  if (playing) stop();
+  deleteSong(workingSongs, currentSongId);
+  currentSongId = Object.keys(workingSongs)[0] || null;
+  activeTier = null; soloStem = null; muted.clear(); selectedStem = null;
+  saveManager.markDirty();
+  commitUndo();
+  buildUI();
+}
+
 // ─── Stem selection + note editing ─────────────────────────────────────────
 
 function selectStem(stem) {
@@ -275,27 +323,202 @@ function pushAllStems() {
   for (const stem of song().stems) if (stem.notes) music.updateStemNotes(stem.name, stem.notes, song());
 }
 
-async function importMidiInto(stem) {
+// ─── Note import (paste ABC · upload .mid/.abc · pick from assets/MIDI) ─────────
+
+/** Parsed MIDI → a beats pattern, prompting for the track when there's more than one. */
+async function pickMidiTrack(parsed, label, grid) {
+  if (!parsed || !parsed.tracks?.length) { modalAlert('Could not parse ' + label, { title: 'Import' }); return null; }
+  let ti = 0;
+  if (parsed.tracks.length > 1) {
+    ti = await modalSelect('Import which track?', parsed.tracks.map((t, i) => ({ value: i, label: t.name, sub: `${t.notes.length} notes` })), { title: 'Import track' });
+    if (ti == null) return null;
+  }
+  return importMidiTrack(parsed.tracks[ti].notes, song().bpm, grid);
+}
+
+/** Let the user pick one of the server's assets/MIDI files; returns its path or null. */
+async function pickServerMidi() {
   let files = [];
   try { files = await fetch('/api/midi-files').then(r => (r.ok ? r.json() : [])); } catch {}
-  if (!files.length) { modalAlert('No .mid files found in assets/MIDI/.', { title: 'Import MIDI' }); return; }
-  const file = files.length === 1 ? files[0]
-    : await modalSelect('Import notes from which MIDI file?', files.map(f => ({ value: f, label: f.split('/').pop() })), { title: 'Import MIDI' });
-  if (!file) return;
-  await soundManager.loadMidi(file);
-  const data = soundManager.midiData.get(file);
-  if (!data || !data.tracks?.length) { modalAlert('Could not parse ' + file, { title: 'Import MIDI' }); return; }
-  let ti = 0;
-  if (data.tracks.length > 1) {
-    ti = await modalSelect('Import which track?', data.tracks.map((t, i) => ({ value: i, label: t.name, sub: `${t.notes.length} notes` })), { title: 'Import track' });
-    if (ti == null) return;
+  if (!files.length) { modalAlert('No .mid files found in assets/MIDI/.', { title: 'Import' }); return null; }
+  if (files.length === 1) return files[0];
+  return modalSelect('Import from which MIDI file?', files.map(f => ({ value: f, label: f.split('/').pop() })), { title: 'Import MIDI' });
+}
+
+/** Read a dropped/picked file into a beats pattern (binary .mid or text ABC). */
+async function fileToNotes(file, grid, beatsPerBar) {
+  const lower = file.name.toLowerCase();
+  if (lower.endsWith('.mid') || lower.endsWith('.midi')) {
+    const notes = await pickMidiTrack(parseMidi(await file.arrayBuffer()), file.name, grid);
+    return notes ? { notes, warnings: [] } : null;
   }
-  ensureTiming(song());
-  stem.notes = importMidiTrack(data.tracks[ti].notes, song().bpm, song().grid);
+  return importAbc(await file.text(), { grid, beatsPerBar });
+}
+
+/** Put imported notes onto a stem (replace or merge), push live + commit one undo step. */
+function applyImportedNotes(stem, notes, mode) {
+  stem.notes = mode === 'add' ? sortNotes([...(stem.notes || []), ...notes]) : notes;
+  selectedStem = stem;
   saveManager.markDirty();
   if (playing) music.updateStemNotes(stem.name, stem.notes, song());
   commitUndo();
   buildUI();
+}
+
+/** The unified import modal: paste ABC, upload a file, or pick from assets/MIDI. */
+async function importInto(stem) {
+  ensureTiming(song());
+  const grid = song().grid, beatsPerBar = song().beatsPerBar;
+
+  const result = await openModal({
+    title: `Import notes → ${stem.name}`, cancelValue: null,
+    render(box, close) {
+      box.appendChild(el('div', 'editor-modal-msg', 'Paste ABC notation below, upload a .mid / .abc file, or pick from assets/MIDI.'));
+      const ta = el('textarea', 'editor-modal-textarea');
+      ta.placeholder = 'X:1\nL:1/8\nK:C\nCDEF GABc | cBAG FEDC |';
+      box.appendChild(ta);
+
+      let pending = null; // { label, notes } from a binary MIDI source
+      const chip = el('div', 'editor-modal-label'); chip.style.minHeight = '16px';
+      box.appendChild(chip);
+      const setPending = (p) => { pending = p; chip.textContent = p ? `MIDI loaded: ${p.label} · ${p.notes.length} notes` : ''; if (p) ta.value = ''; };
+      ta.addEventListener('input', () => { if (pending) setPending(null); });
+
+      // Source buttons
+      const srcRow = el('div', 'editor-modal-row');
+      const fileInput = el('input'); fileInput.type = 'file'; fileInput.accept = '.mid,.midi,.abc,.txt'; fileInput.style.display = 'none';
+      fileInput.addEventListener('change', async () => {
+        const f = fileInput.files?.[0]; fileInput.value = ''; if (!f) return;
+        const lower = f.name.toLowerCase();
+        if (lower.endsWith('.mid') || lower.endsWith('.midi')) {
+          const notes = await pickMidiTrack(parseMidi(await f.arrayBuffer()), f.name, grid);
+          if (notes) setPending({ label: f.name, notes });
+        } else { ta.value = await f.text(); setPending(null); ta.focus(); }
+      });
+      srcRow.appendChild(modalBtn('Choose file…', '', () => fileInput.click()));
+      srcRow.appendChild(modalBtn('From assets/MIDI…', '', async () => {
+        const file = await pickServerMidi(); if (!file) return;
+        await soundManager.loadMidi(file);
+        const notes = await pickMidiTrack(soundManager.midiData.get(file), file.split('/').pop(), grid);
+        if (notes) setPending({ label: file.split('/').pop(), notes });
+      }));
+      srcRow.appendChild(fileInput);
+      box.appendChild(srcRow);
+
+      // Replace vs. Add
+      let mode = 'replace';
+      const modeRow = el('div', 'editor-modal-row');
+      modeRow.appendChild(el('span', 'editor-modal-label', 'On import:'));
+      const repBtn = modalBtn('Replace', '', () => { mode = 'replace'; refreshMode(); });
+      const addBtn = modalBtn('Add to existing', '', () => { mode = 'add'; refreshMode(); });
+      const refreshMode = () => {
+        repBtn.className = 'editor-modal-btn' + (mode === 'replace' ? ' primary' : '');
+        addBtn.className = 'editor-modal-btn' + (mode === 'add' ? ' primary' : '');
+      };
+      refreshMode();
+      modeRow.appendChild(repBtn); modeRow.appendChild(addBtn);
+      box.appendChild(modeRow);
+
+      const err = el('div', 'editor-modal-error'); box.appendChild(err);
+      const doImport = () => {
+        let notes = [], warnings = [];
+        if (pending) notes = pending.notes;
+        else {
+          const txt = ta.value.trim();
+          if (!txt) { err.textContent = 'Paste ABC or choose a file first.'; return; }
+          ({ notes, warnings } = importAbc(txt, { grid, beatsPerBar }));
+        }
+        if (!notes.length) { err.textContent = 'No notes found in that input.'; return; }
+        close({ notes, warnings, mode });
+      };
+      box.appendChild(btnRow(modalBtn('Cancel', '', () => close(null)), modalBtn('Import', 'primary', doImport)));
+      setTimeout(() => ta.focus(), 0);
+    },
+  });
+
+  if (!result) return;
+  applyImportedNotes(stem, result.notes, result.mode);
+  if (result.warnings?.length) modalAlert(result.warnings.join('\n'), { title: 'Imported (with notes)' });
+}
+
+// ─── Stem note ops: transpose · quantize · copy as ABC ─────────────────────────
+
+function afterStemNoteEdit(stem) {
+  saveManager.markDirty();
+  if (playing) music.updateStemNotes(stem.name, stem.notes, song());
+  commitUndo();
+  buildUI();
+}
+
+function transposeStem(stem, semis) {
+  if (!stem.notes?.length) return;
+  for (const n of stem.notes) n.midi = Math.max(PITCH_MIN, Math.min(PITCH_MAX, n.midi + semis));
+  afterStemNoteEdit(stem);
+}
+
+function quantizeStem(stem) {
+  if (!stem.notes?.length) return;
+  ensureTiming(song());
+  const g = song().grid || 0.25;
+  for (const n of stem.notes) { n.beat = Math.max(0, snapBeat(n.beat, g)); n.len = Math.max(g, snapBeat(n.len, g)); }
+  sortNotes(stem.notes);
+  afterStemNoteEdit(stem);
+}
+
+async function copyStemAbc(stem) {
+  ensureTiming(song());
+  if (!stem.notes?.length) { modalAlert('This stem has no notes yet.', { title: 'Copy as ABC' }); return; }
+  const abc = stemToAbc(stem.notes, { beatsPerBar: song().beatsPerBar });
+  let copied = false;
+  try { await navigator.clipboard.writeText(abc); copied = true; } catch {}
+  openModal({
+    title: copied ? 'Copied as ABC' : 'ABC notation', cancelValue: null,
+    render(box, close) {
+      box.appendChild(el('div', 'editor-modal-msg', copied ? 'Copied to your clipboard — also shown here:' : 'Select all and copy:'));
+      const ta = el('textarea', 'editor-modal-textarea'); ta.value = abc; ta.readOnly = true;
+      box.appendChild(ta);
+      box.appendChild(btnRow(modalBtn('Close', 'primary', () => close(null))));
+      setTimeout(() => { ta.focus(); ta.select(); }, 0);
+    },
+  });
+}
+
+// ─── Drag-and-drop file import (onto the whole editor) ─────────────────────────
+let dropHintEl = null;
+const dragHasFiles = (e) => Array.from(e.dataTransfer?.types || []).includes('Files');
+
+function showDropHint(on) {
+  if (on) {
+    if (!dropHintEl) { dropHintEl = el('div', 'me-drop-hint', 'Drop a .mid / .abc file to import'); document.body.appendChild(dropHintEl); }
+    dropHintEl.style.display = 'flex';
+  } else if (dropHintEl) dropHintEl.style.display = 'none';
+}
+
+function onDragOver(e) { if (!dragHasFiles(e) || isModalOpen()) return; e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; showDropHint(true); }
+function onDragLeave(e) { if (e.target === container) showDropHint(false); }
+function onDrop(e) {
+  if (!dragHasFiles(e)) return;
+  e.preventDefault(); showDropHint(false);
+  const f = e.dataTransfer.files?.[0];
+  if (f) importFileDirect(f);
+}
+
+/** Import a dropped file straight into the selected stem (asking which stem if none is). */
+async function importFileDirect(file) {
+  if (!currentSongId) return;
+  ensureTiming(song());
+  let stem = (selectedStem && song().stems.includes(selectedStem)) ? selectedStem : null;
+  if (!stem) {
+    if (!song().stems.length) { modalAlert('Add a stem first, then drop a file to fill it.', { title: 'Import' }); return; }
+    const name = await modalSelect('Import into which stem?', song().stems.map(s => ({ value: s.name, label: s.name })), { title: 'Import' });
+    if (name == null) return;
+    stem = song().stems.find(s => s.name === name);
+  }
+  const res = await fileToNotes(file, song().grid, song().beatsPerBar);
+  if (!res) return;
+  if (!res.notes.length) { modalAlert('No notes found in ' + file.name, { title: 'Import' }); return; }
+  applyImportedNotes(stem, res.notes, 'replace');
+  if (res.warnings?.length) modalAlert(res.warnings.join('\n'), { title: 'Imported (with notes)' });
 }
 
 // ─── UI ──────────────────────────────────────────────────────────────────────
@@ -356,14 +579,18 @@ function injectStyle() {
   .me-pr-hint{color:#7a6a4a;font-size:12px;padding:6px 0}
   .me-pr-info{color:#9a875a;font-size:11px;margin-left:auto}
   .me-pr-body{flex:1;min-height:200px}
+  .me-pr-tools{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;flex-shrink:0}
   .me-play.playing{background:#7a6a30;border-color:#a8902a}
-  .me-transport{display:flex;align-items:center;gap:6px;margin-top:8px;flex-shrink:0}
-  .me-tbtn{min-width:30px;height:28px;padding:0 8px;background:#2a2118;color:#d8cfa8;border:1px solid #5a4a30;border-radius:4px;cursor:pointer;font-size:14px;line-height:1}
-  .me-tbtn:hover:not(:disabled){border-color:#c9a227}
-  .me-tbtn:disabled{opacity:0.35;cursor:default}
-  .me-tplay{background:#3a6a3a;border-color:#5a8a5a;color:#eafaea;min-width:42px;font-weight:600}
-  .me-tplay.playing{background:#7a6a30;border-color:#a8902a}
-  .me-tsep{width:1px;height:20px;background:#4a3c24;margin:0 4px}
+  .me-transport{display:flex;align-items:center;gap:12px;margin-top:10px;flex-shrink:0}
+  .me-tgroup{display:flex;align-items:stretch;background:#161109;border:1px solid #5a4a30;border-radius:6px;overflow:hidden}
+  .me-tcell{min-width:34px;height:30px;padding:0 10px;background:transparent;color:#c9b48a;border:none;border-left:1px solid #4a3c24;cursor:pointer;font-size:14px;line-height:1;display:flex;align-items:center;justify-content:center}
+  .me-tcell:first-child{border-left:none}
+  .me-tcell:hover:not(:disabled){background:rgba(201,162,39,0.14);color:#e0c98a}
+  .me-tcell:disabled{opacity:0.32;cursor:default}
+  .me-tplay{min-width:46px;color:#eee6c4}
+  .me-tplay:hover:not(:disabled){background:rgba(201,162,39,0.22)}
+  .me-tplay.playing{background:#7a6a30;color:#fff4d8}
+  .me-drop-hint{position:fixed;inset:0;z-index:900;display:none;align-items:center;justify-content:center;background:rgba(8,6,3,0.55);color:#e0c98a;font:600 16px system-ui,sans-serif;pointer-events:none;box-shadow:inset 0 0 0 3px #c9a227}
   `;
   document.head.appendChild(s);
 }
@@ -391,6 +618,19 @@ function buildUI() {
   const newBtn = el('button', 'me-new', '+ song');
   newBtn.addEventListener('click', newSongPrompt);
   bar.appendChild(newBtn);
+
+  if (currentSongId) {
+    const dupBtn = el('button', 'me-mini', '⧉ clone');
+    dupBtn.title = 'Duplicate this song';
+    dupBtn.addEventListener('click', dupSongPrompt);
+    const renBtn = el('button', 'me-mini', '✎ rename');
+    renBtn.title = 'Rename this song';
+    renBtn.addEventListener('click', renameSongPrompt);
+    const delSongBtn = el('button', 'me-mini danger', '🗑');
+    delSongBtn.title = 'Delete this song';
+    delSongBtn.addEventListener('click', deleteSongPrompt);
+    bar.appendChild(dupBtn); bar.appendChild(renBtn); bar.appendChild(delSongBtn);
+  }
 
   bar.appendChild(el('div', 'me-spacer'));
   bar.appendChild(saveManager.getStatusIndicator());
@@ -442,7 +682,7 @@ function buildUI() {
   // ── Piano roll for the selected stem ──
   root.appendChild(buildPianoRollPanel());
 
-  root.appendChild(el('div', 'me-hint', 'Click a stem to edit. Draw / drag to move·resize, right-click or Delete to remove, Alt-drag (or the velocity lane) for velocity, click the keys to preview. Ctrl+wheel zooms, drag the minimap to scroll, drag the ruler (or the transport buttons) to move the playhead. Space = play/pause, ← = to start, Ctrl+Z / Ctrl+Y = undo / redo.'));
+  root.appendChild(el('div', 'me-hint', 'Click a stem to edit. Draw / drag to move·resize, right-click or Delete to remove, Alt-drag (or the velocity lane) for velocity, click the keys to preview. Ctrl+wheel zooms, drag the minimap to scroll, drag the ruler to move the playhead. ⧉ clones a stem; Import… pastes/uploads ABC or MIDI (or drop a .mid/.abc file anywhere). Space = play/pause, ← = to start, Ctrl+Z / Ctrl+Y = undo / redo.'));
 
   container.appendChild(root);
 }
@@ -501,6 +741,16 @@ function buildVibeEditRow() {
     if (renameVibe(song(), activeTier, next)) { activeTier = next; structuralEdit(); }
   });
   row.appendChild(renameBtn);
+
+  const cloneBtn = el('button', 'me-mini', '⧉ clone');
+  cloneBtn.title = 'Duplicate this vibe’s level map under a new name';
+  cloneBtn.addEventListener('click', async () => {
+    const name = await modalPrompt('', { title: 'Clone vibe', value: `${activeTier} copy`, confirmLabel: 'Clone',
+      validate: v => !v ? 'Enter a name' : song().intensity[v] ? 'That vibe already exists' : '' });
+    if (!name) return;
+    if (cloneVibe(song(), activeTier, name)) { saveManager.markDirty(); commitUndo(); setScene(name); }
+  });
+  row.appendChild(cloneBtn);
 
   const delBtn = el('button', 'me-mini danger', '🗑 delete');
   delBtn.addEventListener('click', async () => {
@@ -596,6 +846,11 @@ function buildPianoRollPanel() {
   });
   head.appendChild(rename);
 
+  const clone = el('button', 'me-mini', '⧉');
+  clone.title = 'Clone this stem (notes + mix levels), then change its instrument';
+  clone.addEventListener('click', () => { const c = cloneStem(song(), stem.name); if (c) { selectedStem = c; structuralEdit(); } });
+  head.appendChild(clone);
+
   head.appendChild(el('span', 'me-pr-hint', 'instrument'));
   const soundOpts = [{ value: '', label: '(no sound)' }, ...Object.keys(SOUND_CONFIG).sort().map(id => ({ value: id, label: id }))];
   head.appendChild(selectEl(soundOpts, stem.sound || '', (v) => {
@@ -607,8 +862,9 @@ function buildPianoRollPanel() {
     commitUndo();
   }));
 
-  const imp = el('button', 'me-mini', 'Import .mid…');
-  imp.addEventListener('click', () => importMidiInto(stem));
+  const imp = el('button', 'me-mini', 'Import…');
+  imp.title = 'Import notes — paste ABC, upload a .mid/.abc file, or pick from assets/MIDI';
+  imp.addEventListener('click', () => importInto(stem));
   head.appendChild(imp);
 
   const clr = el('button', 'me-mini', 'Clear');
@@ -634,6 +890,7 @@ function buildPianoRollPanel() {
 
   head.appendChild(el('span', 'me-pr-info', `${song().bars} bars · ${song().bpm} BPM · ${stem.notes.length} notes`));
   panel.appendChild(head);
+  panel.appendChild(buildStemTools(stem));
 
   const body = el('div', 'me-pr-body');
   panel.appendChild(body);
@@ -653,21 +910,46 @@ function getPhase() {
   return playheadPhase;
 }
 
+/** A tool row under the piano-roll head: transpose · quantize · copy-as-ABC for the stem. */
+function buildStemTools(stem) {
+  const row = el('div', 'me-pr-tools');
+  row.appendChild(el('span', 'me-pr-hint', 'transpose'));
+  const tb = (label, semis, title) => { const b = el('button', 'me-mini', label); b.title = title; b.addEventListener('click', () => transposeStem(stem, semis)); return b; };
+  row.appendChild(tb('−8va', -12, 'Down an octave'));
+  row.appendChild(tb('−', -1, 'Down a semitone'));
+  row.appendChild(tb('+', +1, 'Up a semitone'));
+  row.appendChild(tb('+8va', +12, 'Up an octave'));
+  const q = el('button', 'me-mini', 'Quantize'); q.title = 'Snap every note’s start + length to the grid';
+  q.addEventListener('click', () => quantizeStem(stem)); row.appendChild(q);
+  const cp = el('button', 'me-mini', 'Copy ABC'); cp.title = 'Copy this stem as ABC notation text';
+  cp.addEventListener('click', () => copyStemAbc(stem)); row.appendChild(cp);
+  return row;
+}
+
 function buildTransport() {
   const bar = el('div', 'me-transport');
-  const mkBtn = (label, title, onClick) => { const b = el('button', 'me-tbtn', label); b.title = title; b.addEventListener('click', onClick); return b; };
+  const cell = (label, title, onClick, extraCls = '') => {
+    const b = el('button', 'me-tcell' + (extraCls ? ' ' + extraCls : ''), label);
+    b.title = title; b.addEventListener('click', onClick); return b;
+  };
 
-  undoBtnEl = mkBtn('⤺', 'Undo (Ctrl+Z)', undo); undoBtnEl.disabled = undoStack.length <= 1;
-  redoBtnEl = mkBtn('⤻', 'Redo (Ctrl+Y)', redo); redoBtnEl.disabled = redoStack.length === 0;
-  bar.appendChild(undoBtnEl); bar.appendChild(redoBtnEl);
-  bar.appendChild(el('span', 'me-tsep'));
+  // Undo / redo cluster (separate small group on the left)
+  const hist = el('div', 'me-tgroup');
+  undoBtnEl = cell('⤺', 'Undo (Ctrl+Z)', undo); undoBtnEl.disabled = undoStack.length <= 1;
+  redoBtnEl = cell('⤻', 'Redo (Ctrl+Y)', redo); redoBtnEl.disabled = redoStack.length === 0;
+  hist.appendChild(undoBtnEl); hist.appendChild(redoBtnEl);
+  bar.appendChild(hist);
 
-  bar.appendChild(mkBtn('⏮', 'Playhead to start (←)', () => setPlayhead(0)));
-  bar.appendChild(mkBtn('⏪', 'Back one bar', () => stepPlayhead(-1)));
-  const playBtn = el('button', 'me-tbtn me-tplay'); playBtn.title = 'Play / Pause (Space)';
-  playBtn.addEventListener('click', toggleTransport); playBtns.push(playBtn); bar.appendChild(playBtn);
-  bar.appendChild(mkBtn('⏹', 'Stop', stop));
-  bar.appendChild(mkBtn('⏩', 'Forward one bar', () => stepPlayhead(1)));
+  // Transport cluster
+  const tg = el('div', 'me-tgroup');
+  tg.appendChild(cell('⏮', 'Playhead to start (←)', () => setPlayhead(0)));
+  tg.appendChild(cell('⏪', 'Back one bar', () => stepPlayhead(-1)));
+  const playBtn = el('button', 'me-tcell me-tplay'); playBtn.title = 'Play / Pause (Space)';
+  playBtn.addEventListener('click', toggleTransport); playBtns.push(playBtn); tg.appendChild(playBtn);
+  tg.appendChild(cell('⏹', 'Stop', stop));
+  tg.appendChild(cell('⏩', 'Forward one bar', () => stepPlayhead(1)));
+  bar.appendChild(tg);
+
   updateTransportBtn();
   return bar;
 }

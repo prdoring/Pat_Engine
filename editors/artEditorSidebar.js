@@ -355,4 +355,7 @@ function selectAsset(fileKey, artDef, label) {
   ctx.rebuildProps();   // no shape selected → shows the asset-level panel
   ctx.rebuildTimeline?.();
   ctx.historyInit?.();
+  // Draw the freshly-opened asset now — if the loop is paused the rAF tick won't,
+  // so the preview would otherwise keep showing the previous asset until Play.
+  if (!ctx.animPlaying) ctx.renderPreview?.();
 }
