@@ -228,3 +228,39 @@ export function importToBeats(parsedNotes, bpm, grid = 0.25) {
     vel: n.velocity ?? 0.8,
   }));
 }
+
+// ─── Pattern tiling (a short stem can repeat to fill a longer song loop) ─────────
+// A song has ONE shared loop length (bars × beatsPerBar). A stem shorter than that either
+// "waits" (plays once, then silence) or "repeats" — tiled here to fill the loop on a whole-bar
+// period so the groove stays bar-aligned. Pure + beats-domain, shared by the player and editor.
+
+/** The whole-bar period a pattern repeats on (smallest multiple of a bar covering it); 0 if empty. */
+export function repeatPeriodBeats(notes, beatsPerBar = 4) {
+  let maxEnd = 0;
+  for (const n of (notes || [])) maxEnd = Math.max(maxEnd, (n.beat || 0) + (n.len ?? n.duration ?? 0));
+  if (maxEnd <= 0) return 0;
+  const bpb = beatsPerBar > 0 ? beatsPerBar : 4;
+  return Math.max(bpb, Math.ceil(maxEnd / bpb - 1e-9) * bpb);
+}
+
+/** Tile `notes` to fill `loopBeats`, repeating every whole-bar period. No-op if it already fills. */
+export function tileBeatsToLoop(notes, loopBeats, beatsPerBar = 4) {
+  const period = repeatPeriodBeats(notes, beatsPerBar);
+  if (!notes?.length || !(loopBeats > 0) || !period || period >= loopBeats - 1e-9) return notes || [];
+  const out = [];
+  for (let off = 0; off < loopBeats - 1e-6; off += period) {
+    for (const n of notes) {
+      const beat = (n.beat || 0) + off;
+      if (beat >= loopBeats - 1e-6) continue;
+      out.push({ ...n, beat });
+    }
+  }
+  return out;
+}
+
+/** Just the *repeated* copies (offset ≥ one period) — the ghost notes a piano roll draws dimmed. */
+export function repeatGhosts(notes, loopBeats, beatsPerBar = 4) {
+  const period = repeatPeriodBeats(notes, beatsPerBar);
+  if (!notes?.length || !period || period >= loopBeats - 1e-9) return [];
+  return tileBeatsToLoop(notes, loopBeats, beatsPerBar).filter(n => n.beat >= period - 1e-9);
+}

@@ -591,7 +591,7 @@ function injectStyle() {
   .me-mini.danger{color:#e0a0a0;border-color:#7a4040}
   .me-scene{color:#9a875a;font-size:12px;margin-bottom:6px}
   .me-mixer{display:flex;gap:8px;padding:12px;background:#100b05;border:1px solid #4a3c24;border-radius:6px;width:max-content;max-width:100%;overflow-x:auto;align-items:flex-start}
-  .me-ch{display:flex;flex-direction:column;align-items:center;gap:5px;width:80px;padding:6px;background:#161109;border:1px solid #3a2f1c;border-radius:5px;cursor:pointer}
+  .me-ch{display:flex;flex-direction:column;align-items:center;gap:5px;width:88px;padding:6px;background:#161109;border:1px solid #3a2f1c;border-radius:5px;cursor:pointer}
   .me-ch.selected{border-color:#c9a227;box-shadow:0 0 0 1px #c9a227}
   .me-ch-name{font-size:12px;color:#e0c98a;font-weight:600;text-align:center;width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .me-fader{writing-mode:vertical-lr;direction:rtl;width:24px;height:130px;accent-color:#c9a227;cursor:pointer;margin-top:4px}
@@ -709,7 +709,7 @@ function buildUI() {
   // ── Piano roll for the selected stem ──
   root.appendChild(buildPianoRollPanel());
 
-  root.appendChild(el('div', 'me-hint', 'Click a stem to edit. Draw / drag to move·resize, right-click or Delete to remove, Alt-drag (or the velocity lane) for velocity, click the keys to preview. Ctrl+wheel zooms, drag the minimap to scroll, drag the ruler to move the playhead. ⧉ clones a stem; Import… pastes/uploads ABC or MIDI (or drop a .mid/.abc file anywhere). Space = play/pause, ← = to start, Ctrl+Z / Ctrl+Y = undo / redo.'));
+  root.appendChild(el('div', 'me-hint', 'Click a stem to edit. Draw / drag to move·resize, right-click or Delete to remove, Alt-drag (or the velocity lane) for velocity, click the keys to preview. Ctrl+wheel zooms, drag the minimap to scroll, drag the ruler to move the playhead. ⧉ clones a stem; Import… pastes/uploads ABC or MIDI (or drop a .mid/.abc file anywhere); ⟳ on a strip repeats a short stem to fill the song. Space = play/pause, ← = to start, Ctrl+Z / Ctrl+Y = undo / redo.'));
 
   container.appendChild(root);
 }
@@ -820,24 +820,31 @@ function channelStrip(stem) {
   ch.appendChild(fader);
   ch.appendChild(val);
 
-  // Mute / Solo
+  // Mute / Solo / Repeat
   const btns = el('div', 'me-ch-btns');
   btns.appendChild(msBtn('M', muted.has(stem.name), '#b5483a', () => {
     if (muted.has(stem.name)) muted.delete(stem.name); else muted.add(stem.name);
     applyMix(); buildUI();
-  }));
+  }, 'Mute'));
   btns.appendChild(msBtn('S', soloStem === stem.name, '#c9a227', () => {
     soloStem = soloStem === stem.name ? null : stem.name;
     applyMix(); buildUI();
-  }));
+  }, 'Solo'));
+  btns.appendChild(msBtn('⟳', !!stem.repeat, '#6a9f5a', () => {
+    if (stem.repeat) delete stem.repeat; else stem.repeat = true;
+    saveManager.markDirty();
+    if (playing) music.updateStemNotes(stem.name, stem.notes, song());
+    commitUndo(); buildUI();
+  }, 'Repeat this stem to fill the whole song (off = play once, then wait)'));
   ch.appendChild(btns);
 
   function mgmtHit(e) { return btns.contains(e.target); }
   return ch;
 }
 
-function msBtn(label, active, color, onClick) {
+function msBtn(label, active, color, onClick, title) {
   const b = el('button', 'me-ms', label);
+  if (title) b.title = title;
   if (active) { b.style.background = color; b.style.color = '#160d04'; b.style.borderColor = color; }
   b.addEventListener('click', (e) => { e.stopPropagation(); onClick(); });
   return b;
@@ -924,6 +931,7 @@ function buildPianoRollPanel() {
   if (!pianoRoll) pianoRoll = createPianoRoll(body, { onEdit: onNotesEdited, onEditCommit: commitUndo, getPhase, previewNote, onSeek: setPlayhead });
   else body.appendChild(pianoRoll.el);
   pianoRoll.setPattern(stem.notes, song());
+  pianoRoll.setRepeat(!!stem.repeat);
   pianoRoll.setPlaying(playing);
 
   panel.appendChild(buildTransport());

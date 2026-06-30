@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { parseMidi, beatsToSeconds, secondsToBeats, loopSeconds, importToBeats } from '/engine/audio/midi.js';
+import { parseMidi, beatsToSeconds, secondsToBeats, loopSeconds, importToBeats, repeatPeriodBeats, tileBeatsToLoop, repeatGhosts } from '/engine/audio/midi.js';
 
 // A hand-built Standard MIDI File: format 0, 1 track, PPQ=96, tempo 500000us (120 BPM).
 // Two quarter notes back to back: C4 (60) then E4 (64), each 96 ticks = 0.5s.
@@ -115,4 +115,41 @@ test('parseMidi splits named tracks and still merges notes', () => {
   // Merged list keeps every track (back-compat for one-shot/loop MIDI sounds).
   assert.equal(notes.length, 4);
   assert.deepEqual([...new Set(notes.map(n => n.midi))].sort((a, b) => a - b), [48, 50, 72, 76]);
+});
+
+// ─── Pattern tiling (repeat a short stem to fill a longer song loop) ───────────
+
+test('repeatPeriodBeats rounds the content up to whole bars', () => {
+  assert.equal(repeatPeriodBeats([{ beat: 0, len: 1, midi: 60 }], 4), 4);   // 1-beat content → 1 bar
+  assert.equal(repeatPeriodBeats([{ beat: 0, len: 4, midi: 60 }], 4), 4);   // exactly 1 bar
+  assert.equal(repeatPeriodBeats([{ beat: 4, len: 2, midi: 60 }], 4), 8);   // ends at beat 6 → 2 bars
+  assert.equal(repeatPeriodBeats([], 4), 0);
+});
+
+test('tileBeatsToLoop fills the loop with bar-aligned copies', () => {
+  const src = [{ beat: 0, len: 1, midi: 36, vel: 0.8 }, { beat: 2, len: 1, midi: 38, vel: 0.8 }];
+  const tiled = tileBeatsToLoop(src, 16, 4); // 1-bar pattern across a 4-bar loop → 4 copies
+  assert.equal(tiled.length, 8);
+  assert.deepEqual(tiled.map(n => n.beat), [0, 2, 4, 6, 8, 10, 12, 14]);
+  assert.deepEqual([...new Set(tiled.map(n => n.midi))].sort((a, b) => a - b), [36, 38]);
+});
+
+test('tileBeatsToLoop is a no-op when the pattern already fills (or overfills) the loop', () => {
+  const src = [{ beat: 0, len: 4, midi: 60 }];
+  assert.strictEqual(tileBeatsToLoop(src, 4, 4), src);  // period 4 ≥ loop 4
+  assert.strictEqual(tileBeatsToLoop(src, 2, 4), src);  // longer than loop
+  assert.deepEqual(tileBeatsToLoop([], 16, 4), []);     // empty
+});
+
+test('tileBeatsToLoop never emits a copy starting at/after the loop end', () => {
+  const tiled = tileBeatsToLoop([{ beat: 0, len: 1, midi: 60 }], 10, 4); // period 4 → 0,4,8
+  assert.deepEqual(tiled.map(n => n.beat), [0, 4, 8]);
+});
+
+test('repeatGhosts returns only the repeated copies (offset ≥ one period)', () => {
+  const src = [{ beat: 0, len: 1, midi: 60 }, { beat: 1, len: 1, midi: 62 }];
+  const ghosts = repeatGhosts(src, 16, 4); // period 4, copies at 4/8/12 → 2 notes each = 6
+  assert.equal(ghosts.length, 6);
+  assert.ok(ghosts.every(n => n.beat >= 4));
+  assert.deepEqual(repeatGhosts(src, 4, 4), []); // already fills → no ghosts
 });

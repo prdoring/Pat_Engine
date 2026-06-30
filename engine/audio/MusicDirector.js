@@ -1,5 +1,5 @@
 import { MUSIC_SONGS } from '/engine/data/music.js';
-import { beatsToSeconds, loopSeconds } from '/engine/audio/midi.js';
+import { beatsToSeconds, loopSeconds, tileBeatsToLoop } from '/engine/audio/midi.js';
 
 /**
  * Adaptive (vertical-remixing) background music. Plays a song made of several
@@ -25,6 +25,20 @@ export class MusicDirector {
   /** Loop length (seconds) of a tempo-based song, or null for legacy `.mid`-driven songs. */
   _songLoopLen(song) {
     return song.bpm ? loopSeconds(song.bars ?? 4, song.beatsPerBar ?? 4, song.bpm) : null;
+  }
+
+  /** Loop length in beats for a song's bar grid. */
+  _loopBeats(song) {
+    return (song.bars ?? 4) * (song.beatsPerBar ?? 4);
+  }
+
+  /**
+   * A stem's effective beats pattern: tiled to fill the song loop when `stem.repeat` is set
+   * (a short pattern repeats), else its notes as-authored (it plays once, then waits).
+   */
+  _stemNotes(stem, song, beatsNotes = stem.notes) {
+    if (!stem?.repeat || !beatsNotes?.length) return beatsNotes || [];
+    return tileBeatsToLoop(beatsNotes, this._loopBeats(song), song.beatsPerBar ?? 4);
   }
 
   isPlaying() { return this.song !== null; }
@@ -75,7 +89,7 @@ export class MusicDirector {
       // loop length, so every stem loops to the same bar grid. A stem with no `notes` falls
       // back to its sound's `synth.midi` (legacy .mid-driven path).
       if (stem.notes && song.bpm) {
-        playOpts.notes = beatsToSeconds(stem.notes, song.bpm);
+        playOpts.notes = beatsToSeconds(this._stemNotes(stem, song), song.bpm);
         if (this._loopLen) playOpts.loopLen = this._loopLen;
       }
       const h = this.sound.startUILoop(stem.sound, playOpts);
@@ -114,7 +128,9 @@ export class MusicDirector {
   updateStemNotes(name, beatsNotes, song = this.song) {
     const h = this.handles.get(name);
     if (h == null || !song?.bpm) return false;
-    return this.sound.updateMidiLoopNotes(h, beatsToSeconds(beatsNotes, song.bpm), this._songLoopLen(song));
+    const stem = song.stems?.find(s => s.name === name);
+    const notes = this._stemNotes(stem || {}, song, beatsNotes);
+    return this.sound.updateMidiLoopNotes(h, beatsToSeconds(notes, song.bpm), this._songLoopLen(song));
   }
 
   /**
@@ -134,7 +150,7 @@ export class MusicDirector {
     const startAt = this._startAt + Math.floor((now - this._startAt) / this._loopLen) * this._loopLen;
     const playOpts = { volume: 0, startAt };
     if (stem.notes && song.bpm) {
-      playOpts.notes = beatsToSeconds(stem.notes, song.bpm);
+      playOpts.notes = beatsToSeconds(this._stemNotes(stem, song), song.bpm);
       playOpts.loopLen = this._loopLen;
     }
     const h = this.sound.startUILoop(newSoundId, playOpts);

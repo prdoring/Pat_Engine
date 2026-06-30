@@ -9,7 +9,7 @@
 // draws lines. Note math goes through editors/midiModel.js; the host owns the notes array +
 // persistence (`onEdit`), auditions via `previewNote`, and seeks playback via `onSeek`.
 import {
-  addNote, moveNote, resizeNote, deleteNote, setVelocity, loopBeats, PITCH_MIN, PITCH_MAX,
+  addNote, moveNote, resizeNote, deleteNote, setVelocity, loopBeats, repeatGhosts, PITCH_MIN, PITCH_MAX,
 } from './midiModel.js';
 import { isModalOpen } from './editorShared.js';
 
@@ -25,6 +25,7 @@ const BLACK = new Set([1, 3, 6, 8, 10]); // semitones that are black keys
 export function createPianoRoll(container, { onEdit = () => {}, onEditCommit = () => {}, getPhase = () => null, previewNote = () => {}, onSeek = () => {} } = {}) {
   let pattern = [];
   let song = { bpm: 120, bars: 4, beatsPerBar: 4, grid: 0.25 };
+  let repeat = false; // selected stem repeats to fill the loop → draw ghost copies
   let zoom = 1, pxPerBeat = 40, scrollX = 0, scrollY = 0;
   let playing = false, selected = null, drag = null, raf = null, staticDirty = true, gestureDirtied = false;
 
@@ -69,6 +70,8 @@ export function createPianoRoll(container, { onEdit = () => {}, onEditCommit = (
   // ── Static layers → offscreen cache ──
   function renderStatic() {
     const g = bctx, w = cssW(), h = cssH();
+    // Repeat ghosts: tiled copies of a short pattern that fill the loop (read-only, drawn dimmed).
+    const ghosts = repeat ? repeatGhosts(pattern, lb(), song.beatsPerBar ?? 4) : [];
     g.setTransform(dpr(), 0, 0, dpr(), 0, 0);
     g.clearRect(0, 0, w, h);
     g.fillStyle = '#0e0a05'; g.fillRect(0, 0, w, h);
@@ -76,6 +79,7 @@ export function createPianoRoll(container, { onEdit = () => {}, onEditCommit = (
     // minimap (whole-loop overview)
     g.fillStyle = '#080502'; g.fillRect(0, 0, w, MINI);
     g.fillStyle = '#5a4a30'; g.font = '8px monospace'; g.textBaseline = 'middle'; g.fillText('map', 6, MINI / 2);
+    for (const n of ghosts) { g.fillStyle = '#39301c'; g.fillRect(miniX(n.beat), 3, 1.5, MINI - 6); }   // ghost density
     for (const n of pattern) { g.fillStyle = '#6b5a36'; g.fillRect(miniX(n.beat), 3, 1.5, MINI - 6); } // note density
     // visible-window box
     const vx0 = miniX(scrollX / pxPerBeat), vx1 = miniX((scrollX + (w - GUTTER)) / pxPerBeat);
@@ -96,6 +100,12 @@ export function createPianoRoll(container, { onEdit = () => {}, onEditCommit = (
       const x = xAt(b); if (x < GUTTER - 1 || x > w) continue;
       g.strokeStyle = Math.abs(b % bpb) < 1e-6 ? '#5a4a30' : Math.abs(b % 1) < 1e-6 ? '#3a2f1c' : '#241a0e';
       g.lineWidth = 1; g.beginPath(); g.moveTo(Math.floor(x) + 0.5, TOP); g.lineTo(Math.floor(x) + 0.5, TOP + mainH()); g.stroke();
+    }
+    for (const n of ghosts) { // tiled repeats — dim, no outline, behind the editable notes
+      const x = xAt(n.beat), y = yTop(n.midi), nw = Math.max(2, n.len * pxPerBeat);
+      if (x + nw < GUTTER || x > w || y > TOP + mainH() || y + ROW_H < TOP) continue;
+      g.fillStyle = 'rgba(201,162,39,0.16)';
+      g.fillRect(x, y + 1, nw, ROW_H - 2);
     }
     for (const n of pattern) {
       const x = xAt(n.beat), y = yTop(n.midi), nw = Math.max(2, n.len * pxPerBeat);
@@ -273,6 +283,7 @@ export function createPianoRoll(container, { onEdit = () => {}, onEditCommit = (
     el: wrap,
     setPattern(notes, songObj) { pattern = notes || []; if (songObj) song = songObj; selected = null; recomputePx(); clampX(); centerOnPattern(); draw(); },
     setSong(songObj) { song = songObj; recomputePx(); clampX(); clampScroll(); draw(); },
+    setRepeat(on) { const v = !!on; if (v !== repeat) { repeat = v; draw(); } },
     setPlaying(on) { playing = on; if (on && !raf) loop(); if (!on && raf) { cancelAnimationFrame(raf); raf = null; paint(); } else if (!on) paint(); },
     redraw: draw,
     destroy() { if (raf) cancelAnimationFrame(raf); ro.disconnect(); window.removeEventListener('keydown', onKey); window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); wrap.remove(); },

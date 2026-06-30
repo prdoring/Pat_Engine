@@ -5,6 +5,7 @@
 // at the look-ahead horizon, so an out-of-order note would be skipped. Keeping this logic here
 // (not in the DOM component) makes it unit-testable in Node, like editors/musicModel.js.
 import { importToBeats } from '/engine/audio/midi.js';
+export { repeatGhosts, repeatPeriodBeats, tileBeatsToLoop } from '/engine/audio/midi.js';
 
 export const PITCH_MIN = 21;  // A0
 export const PITCH_MAX = 108; // C8
