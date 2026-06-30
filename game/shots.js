@@ -11,6 +11,10 @@ import { EffectsManager } from '/engine/fx/EffectsManager.js';
 import { EffectsRenderer } from '/engine/render/EffectsRenderer.js';
 import { buildArtRegistry } from '/engine/data/art.js';
 import { VFX_DEFS } from '/engine/data/vfx.js';
+import { setEffectResolver } from '/engine/render/ArtInterpreter.js';
+
+// effectRef shapes resolve to VFX effects by id in the shot harness too.
+setEffectResolver((id) => VFX_DEFS[id]);
 
 import critterArt from '/data/critter-art.json' with { type: 'json' };
 import propArt from '/data/prop-art.json' with { type: 'json' };
@@ -86,6 +90,9 @@ function hydrateGarden(scene, state, env) {
     if (spec.radius != null) c.radius = spec.radius;
     if (spec.vx != null) c.vx = spec.vx;
     if (spec.vy != null) c.vy = spec.vy;
+    // Pin keyframe clips to a deterministic local time so a play-once clip
+    // (happy/scared) renders its intended mid-clip pose instead of t0 / held end.
+    if (spec.animTime) c._artTransition = { animTime: { ...spec.animTime } };
     return c;
   });
   scene.critters = critters;

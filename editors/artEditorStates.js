@@ -2,20 +2,27 @@
 // Handles state discovery, state bar UI, rename/delete state operations.
 
 import { ctx } from './artEditorCtx.js';
+import { modalPrompt } from './editorShared.js';
+import { renameAnimState, cloneAnimState, deleteAnimState } from './artKeyframes.js';
 
 // ─── State Discovery ─────────────────────────────────────────────────────────
 
-/** Scan an art definition for all state names (from shapes' stateOverrides, activeStates, visibleStates). */
+/**
+ * Scan an art definition for all state names — from the declared `states` list,
+ * per-state keyframe clips (`animations` / shape `anim`, excluding the ambient
+ * "*" clip), shape state overrides, and `visibleStates`.
+ */
 export function discoverStates(artDef) {
   const states = new Set();
   if (artDef.states) artDef.states.forEach(s => states.add(s));
+  if (artDef.animations) Object.keys(artDef.animations).forEach(s => { if (s !== '*') states.add(s); });
   function scan(shape) {
     if (shape.stateOverrides) Object.keys(shape.stateOverrides).forEach(s => states.add(s));
     if (shape.states && typeof shape.states === 'object' && !Array.isArray(shape.states)) {
       Object.keys(shape.states).forEach(s => states.add(s));
     }
-    if (shape.activeStates) shape.activeStates.forEach(s => states.add(s));
     if (shape.visibleStates) shape.visibleStates.forEach(s => states.add(s));
+    if (shape.anim) Object.keys(shape.anim).forEach(s => { if (s !== '*') states.add(s); });
     if (shape.shapes) shape.shapes.forEach(scan);
     if (shape.children) shape.children.forEach(scan);
   }
@@ -29,8 +36,8 @@ function countStateRefs(artDef, stateName) {
   function scan(shape) {
     if (shape.stateOverrides && shape.stateOverrides[stateName]) count++;
     if (shape.states && typeof shape.states === 'object' && !Array.isArray(shape.states) && shape.states[stateName]) count++;
-    if (shape.activeStates && shape.activeStates.includes(stateName)) count++;
     if (shape.visibleStates && shape.visibleStates.includes(stateName)) count++;
+    if (shape.anim && shape.anim[stateName]) count++;
     if (shape.shapes) shape.shapes.forEach(scan);
     if (shape.children) shape.children.forEach(scan);
   }
@@ -127,6 +134,12 @@ function showAddStateInput() {
       if (!ctx.discoveredStates.includes(name)) {
         ctx.discoveredStates.push(name);
       }
+      // Persist as a declared state so an empty state survives a reload.
+      const art = ctx.currentArt;
+      if (art && !(art.states || []).includes(name)) {
+        art.states = [...(art.states || []), name];
+        ctx.markDirty?.();
+      }
       ctx.currentEditState = name;
       ctx.previewState = name;
       buildStateBar();
@@ -151,9 +164,9 @@ function showStateContextMenu(x, y, stateName) {
   const renameItem = document.createElement('div');
   renameItem.className = 'editor-context-menu-item';
   renameItem.textContent = 'Rename';
-  renameItem.addEventListener('click', () => {
+  renameItem.addEventListener('click', async () => {
     menu.remove();
-    const newName = prompt('Rename state:', stateName);
+    const newName = await modalPrompt('Rename state:', { title: 'Rename state', value: stateName, confirmLabel: 'Rename' });
     if (newName && newName !== stateName && !ctx.discoveredStates.includes(newName)) {
       renameStateEverywhere(ctx.currentArt, stateName, newName);
       const idx = ctx.discoveredStates.indexOf(stateName);
@@ -170,9 +183,9 @@ function showStateContextMenu(x, y, stateName) {
   const cloneItem = document.createElement('div');
   cloneItem.className = 'editor-context-menu-item';
   cloneItem.textContent = 'Clone';
-  cloneItem.addEventListener('click', () => {
+  cloneItem.addEventListener('click', async () => {
     menu.remove();
-    const newName = prompt('Clone state as:', stateName + '_copy');
+    const newName = await modalPrompt('Clone state as:', { title: 'Clone state', value: stateName + '_copy', confirmLabel: 'Clone' });
     if (newName && newName !== stateName && !ctx.discoveredStates.includes(newName)) {
       cloneStateEverywhere(ctx.currentArt, stateName, newName);
       ctx.discoveredStates.push(newName);
@@ -218,10 +231,6 @@ function renameStateEverywhere(artDef, oldName, newName) {
       shape.states[newName] = shape.states[oldName];
       delete shape.states[oldName];
     }
-    if (shape.activeStates) {
-      const idx = shape.activeStates.indexOf(oldName);
-      if (idx >= 0) shape.activeStates[idx] = newName;
-    }
     if (shape.visibleStates) {
       const idx = shape.visibleStates.indexOf(oldName);
       if (idx >= 0) shape.visibleStates[idx] = newName;
@@ -234,6 +243,8 @@ function renameStateEverywhere(artDef, oldName, newName) {
     if (idx >= 0) artDef.states[idx] = newName;
   }
   if (artDef.shapes) artDef.shapes.forEach(scan);
+  // Move the per-state keyframe clip (art.animations[state] + every shape.anim[state]).
+  renameAnimState(artDef, oldName, newName);
 }
 
 function cloneStateEverywhere(artDef, srcName, newName) {
@@ -241,9 +252,6 @@ function cloneStateEverywhere(artDef, srcName, newName) {
     const overridesMap = shape.states || shape.stateOverrides;
     if (overridesMap && overridesMap[srcName]) {
       overridesMap[newName] = JSON.parse(JSON.stringify(overridesMap[srcName]));
-    }
-    if (shape.activeStates && shape.activeStates.includes(srcName)) {
-      shape.activeStates.push(newName);
     }
     if (shape.visibleStates && shape.visibleStates.includes(srcName)) {
       shape.visibleStates.push(newName);
@@ -255,6 +263,8 @@ function cloneStateEverywhere(artDef, srcName, newName) {
     artDef.states.push(newName);
   }
   if (artDef.shapes) artDef.shapes.forEach(scan);
+  // Duplicate the per-state keyframe clip onto the new state.
+  cloneAnimState(artDef, srcName, newName);
 }
 
 function deleteStateEverywhere(artDef, stateName) {
@@ -262,9 +272,6 @@ function deleteStateEverywhere(artDef, stateName) {
     if (shape.stateOverrides) delete shape.stateOverrides[stateName];
     if (shape.states && typeof shape.states === 'object' && !Array.isArray(shape.states)) {
       delete shape.states[stateName];
-    }
-    if (shape.activeStates) {
-      shape.activeStates = shape.activeStates.filter(s => s !== stateName);
     }
     if (shape.visibleStates) {
       shape.visibleStates = shape.visibleStates.filter(s => s !== stateName);
@@ -276,6 +283,8 @@ function deleteStateEverywhere(artDef, stateName) {
     artDef.states = artDef.states.filter(s => s !== stateName);
   }
   if (artDef.shapes) artDef.shapes.forEach(scan);
+  // Drop the per-state keyframe clip (art.animations[state] + every shape.anim[state]).
+  deleteAnimState(artDef, stateName);
 }
 
 function rebuildPropsForState() {

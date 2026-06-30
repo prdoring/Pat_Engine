@@ -18,6 +18,7 @@ export const BACKGROUND_LAYERS = [
 export const SPECIES = {
   blob:   { radius: 26, color: '#7cc6a0', trail: 'trailWander' },
   sprout: { radius: 24, color: '#cad27a', trail: 'trailDash' },
+  beetle: { radius: 26, color: '#6a9f5a', trail: 'trailWander' },
 };
 
 // Wander physics (fed straight into engine applyShipPhysics).

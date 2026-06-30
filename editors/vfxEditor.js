@@ -7,7 +7,7 @@ import { drawPhasedEffect, drawTrailEffect, drawBeamEffect } from '/engine/rende
 import {
   SaveManager, EditorPreviewCamera,
   NumberSlider, ColorInput, PropertyGroup, Select, TextInput, Toggle,
-  createResizer,
+  createResizer, modalConfirm, modalPrompt, modalSelect,
 } from './editorShared.js';
 import { loadManifest, getManifest } from './editorManifest.js';
 
@@ -39,7 +39,8 @@ function categoryOrder() {
 
 // ─── Primitives available for layers ─────────────────────────────────────────
 
-const PRIMITIVE_TYPES = ['filledCircle', 'gradientCircle', 'strokeRing', 'dashedRing', 'spikeLines'];
+const PRIMITIVE_TYPES = ['filledCircle', 'gradientCircle', 'strokeRing', 'dashedRing', 'spikeLines',
+  'scatterDots', 'scatterLines', 'scatterStrips'];
 
 // Properties each primitive type expects (for building UI)
 const PRIMITIVE_PROPS = {
@@ -48,6 +49,18 @@ const PRIMITIVE_PROPS = {
   strokeRing: ['radius', 'color', 'lineWidth', 'alpha', 'shadow'],
   dashedRing: ['radius', 'color', 'lineWidth', 'dashPattern', 'alpha', 'shadow'],
   spikeLines: ['count', 'innerRadius', 'outerRadius', 'color', 'lineWidth', 'alpha', 'shadow'],
+  // Scatter clouds (ported from the art `particles` emitters).
+  scatterDots: ['count', 'spreadX', 'spreadY', 'sizeMin', 'sizeRange', 'alphaMin', 'alphaRange', 'colors', 'colorThreshold'],
+  scatterLines: ['count', 'color', 'lineWidth', 'spreadFactor', 'reachOffset', 'reachFactor', 'alphaMin', 'alphaRange'],
+  scatterStrips: ['count', 'stripLength', 'lineWidth', 'spread', 'rotateSpeedMin', 'rotateSpeedMax', 'alphaMin', 'alphaRange', 'colors'],
+};
+
+// Slider ranges for the scatter-cloud scalar fields.
+const SCATTER_RANGES = {
+  spreadX: [0, 2, 0.05], spreadY: [0, 2, 0.05], sizeMin: [0, 5, 0.1], sizeRange: [0, 5, 0.1],
+  alphaMin: [0, 1, 0.05], alphaRange: [0, 1, 0.05], colorThreshold: [0, 1, 0.05],
+  spreadFactor: [0, 2, 0.05], reachOffset: [0, 2, 0.05], reachFactor: [0, 2, 0.05],
+  stripLength: [0.01, 1, 0.01], spread: [0, 3, 0.05], rotateSpeedMin: [0, 0.02, 0.001], rotateSpeedMax: [0, 0.02, 0.001],
 };
 
 // ─── Default definitions for new effects ────────────────────────────────────
@@ -814,6 +827,20 @@ function buildLayerEditor(def, phaseIdx, layerIdx) {
       case 'shadow':
         buildShadowEditor(layerGroup.body, layer, setLayer);
         break;
+      case 'colors': {
+        if (!Array.isArray(layer.colors)) layer.colors = ['#cfe8d8', '#7fae93'];
+        const cg = PropertyGroup('Colors');
+        layer.colors.forEach((c, i) => addWidgetTo(cg.body, ColorInput('[' + i + ']', c, v => { layer.colors[i] = v; setLayer('colors', [...layer.colors]); })));
+        layerGroup.body.appendChild(cg.el);
+        break;
+      }
+      default: {
+        if (SCATTER_RANGES[prop]) {
+          const [mn, mx, st] = SCATTER_RANGES[prop];
+          addWidgetTo(layerGroup.body, NumberSlider(prop, mn, mx, st, layer[prop] ?? mn, v => setLayer(prop, v)));
+        }
+        break;
+      }
     }
   }
 
@@ -1199,20 +1226,23 @@ function buildWiggleBeamProps(def, set) {
 // CRUD
 // ═══════════════════════════════════════════════════════════════════════════
 
-function createNewEffect() {
-  const typeOptions = Object.keys(NEW_EFFECT_DEFAULTS);
-  const type = prompt(`New effect type:\n${typeOptions.join(', ')}`, 'phased');
+async function createNewEffect() {
+  // Effect type is a fixed enum — a dropdown, not a typed string.
+  const type = await modalSelect('Choose an effect type', Object.keys(NEW_EFFECT_DEFAULTS).map(t => ({ value: t, label: t })), { title: 'New VFX effect' });
   if (!type || !NEW_EFFECT_DEFAULTS[type]) return;
-  const name = prompt('Effect name (camelCase):', 'newEffect');
-  if (!name || workingData[name]) { alert(name ? 'Name already exists' : 'Cancelled'); return; }
+  const name = await modalPrompt('Effect name (camelCase):', {
+    title: `New ${type} effect`, value: 'newEffect', confirmLabel: 'Create',
+    validate: (v) => !v ? 'Enter a name' : (workingData[v] ? `"${v}" already exists` : null),
+  });
+  if (!name) return;
   workingData[name] = JSON.parse(JSON.stringify(NEW_EFFECT_DEFAULTS[type]));
   saveManager.markDirty();
   selectEffect(name);
 }
 
-function deleteSelected() {
+async function deleteSelected() {
   if (!selectedId) return;
-  if (!confirm(`Delete "${selectedId}"?`)) return;
+  if (!(await modalConfirm(`Delete "${selectedId}"?`, { title: 'Delete effect', confirmLabel: 'Delete', danger: true }))) return;
   delete workingData[selectedId];
   saveManager.markDirty();
   selectedId = null;
@@ -1220,10 +1250,13 @@ function deleteSelected() {
   buildPropsPanel();
 }
 
-function duplicateSelected() {
+async function duplicateSelected() {
   if (!selectedId || !workingData[selectedId]) return;
-  const name = prompt('New name for duplicate:', selectedId + 'Copy');
-  if (!name || workingData[name]) { alert(name ? 'Name already exists' : 'Cancelled'); return; }
+  const name = await modalPrompt('New name for duplicate:', {
+    title: `Duplicate "${selectedId}"`, value: selectedId + 'Copy', confirmLabel: 'Duplicate',
+    validate: (v) => !v ? 'Enter a name' : (workingData[v] ? `"${v}" already exists` : null),
+  });
+  if (!name) return;
   workingData[name] = JSON.parse(JSON.stringify(workingData[selectedId]));
   saveManager.markDirty();
   selectEffect(name);

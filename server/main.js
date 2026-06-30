@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { PORT, HOST, EDITOR_PASSWORD, DIRS, MIME, MAX_BACKUPS, getSaveAllowlist } from './config.js';
-import { handleSaveData, readBody } from './saveData.js';
+import { handleSaveData, handleManageCollection, readBody } from './saveData.js';
 
 // Per-process session token. The auth cookie carries THIS, never the password,
 // so the secret never round-trips through the browser. Regenerated each start.
@@ -156,6 +156,11 @@ export function requestHandler(req, res) {
         allowlist: getSaveAllowlist(),
         maxBackups: MAX_BACKUPS,
       });
+    }
+
+    // ── Editor collection management (create/rename/delete art collections) ──
+    if (req.method === 'POST' && pathname === '/api/manage-collection') {
+      return handleManageCollection(req, res, { dataDir: DIRS.data, backupDir: DIRS.backups });
     }
 
     // ── SFX file listing (for the soundboard file-layer picker) ──

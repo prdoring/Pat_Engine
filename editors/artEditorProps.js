@@ -1,13 +1,53 @@
 // Shape property panel and per-type editors for the art editor.
 // Builds the right-side property panel when a shape is selected.
 
-import { ctx, getShapeAtPath, pathToKey, SHAPE_ICONS, createStateProxy } from './artEditorCtx.js';
-import { collectAvailableVars, wrapShapeInAnimation, removeParentAnimation } from './artEditorTree.js';
+import { ctx, getShapeAtPath, SHAPE_ICONS, createStateProxy } from './artEditorCtx.js';
+import { collectAvailableVars } from './artEditorTree.js';
+import { VFX_DEFS } from '/engine/data/vfx.js';
 import { rotateShapeAroundCenter } from './artEditorPreview.js';
 import {
   NumberSlider, ColorInput, Select, TextInput, Toggle, Button,
-  PropertyGroup, CoordEditor, TagListEditor,
+  PropertyGroup, CoordEditor, TagListEditor, setCoordReadout,
 } from './editorShared.js';
+import {
+  keyframeableProps, getPropValue, getTrack, setKeyframe, ensureClip, makeLoopable, clipMeta,
+} from './artKeyframes.js';
+
+// Live "= N px" readout under each CoordEditor: resolves the static terms
+// (base + r/w/h) at the current preview radius/space, and annotates anim-var
+// terms symbolically (they vary each frame, so showing the decomposition is
+// clearer than a flickering number). The art editor owns this because only it
+// knows the radius/space; the generic widget stays game-agnostic.
+function coordReadout(value) {
+  const r = ctx.previewRadius || 60;
+  const art = ctx.currentArt;
+  const w = art && art.space ? r * (art.space.widthFactor || 1) : r;
+  const h = art && art.space ? r * (art.space.heightFactor || 1) : r;
+  if (typeof value === 'number') return `= ${(value * r).toFixed(1)}px`;
+  if (value && typeof value === 'object') {
+    let px = 0; const anim = [];
+    for (const [k, v] of Object.entries(value)) {
+      if (typeof v !== 'number') continue;
+      if (k === 'base') px += v;
+      else if (k === 'r') px += v * r;
+      else if (k === 'w') px += v * w;
+      else if (k === 'h') px += v * h;
+      else anim.push(`${v}·${k}`);
+    }
+    return `= ${px.toFixed(1)}px` + (anim.length ? ` + (${anim.join(' + ')})·r` : '');
+  }
+  if (typeof value === 'string' && value) return `= ${value}·r`;
+  return '';
+}
+setCoordReadout(coordReadout);
+
+/** A subtle "enable this optional field" button. */
+function addFieldButton(label, onClick) {
+  const b = Button(label, onClick, 'subtle');
+  b.el.style.cssText += 'font-size:10px;padding:1px 6px;margin:2px 0;color:#7a9a6a;';
+  return b.el;
+}
+const radiusModeToggle = addFieldButton;
 
 // ─── Main Shape Properties ───────────────────────────────────────────────────
 
@@ -17,10 +57,10 @@ export function buildShapeProps() {
   if (!ctx.currentArt) return;
   const art = ctx.currentArt;
 
-  if (!ctx.selectedShapePath) { ctx.clearProps(); return; }
+  if (!ctx.selectedShapePath) { buildAssetPanel(art); return; }
 
   const rawShape = getShapeAtPath(art.shapes, ctx.selectedShapePath);
-  if (!rawShape) { ctx.clearProps(); return; }
+  if (!rawShape) { buildAssetPanel(art); return; }
 
   // Proxy routes property reads/writes through state overrides when editing non-BASE
   const shape = createStateProxy(rawShape, ctx.currentEditState);
@@ -74,9 +114,6 @@ export function buildShapeProps() {
     }).el);
   }
 
-  // Animations section (uses rawShape for tree operations)
-  buildAnimationsSection(ctx.propsEl, art, ctx.selectedShapePath, rawShape, stateNames, onDirty);
-
   // Type-specific properties (use proxy — auto-creates overrides in non-BASE state)
   switch (rawShape.type) {
     case 'group': buildGroupEditor(ctx.propsEl, shape, availableVars, onDirty); break;
@@ -88,20 +125,69 @@ export function buildShapeProps() {
     case 'rect': buildRectEditor(ctx.propsEl, shape, availableVars, onDirty); break;
     case 'roundedRect': buildRoundedRectEditor(ctx.propsEl, shape, availableVars, onDirty); break;
     case 'boltCluster': buildBoltClusterEditor(ctx.propsEl, shape, availableVars, onDirty); break;
-    case 'spinner': buildSpinnerEditor(ctx.propsEl, shape, availableVars, stateNames, onDirty); break;
-    case 'oscillator': buildOscillatorEditor(ctx.propsEl, shape, availableVars, stateNames, onDirty); break;
     case 'conditional': buildConditionalEditor(ctx.propsEl, shape, stateNames, onDirty); break;
     case 'particles': buildParticlesEditor(ctx.propsEl, shape, availableVars, stateNames, onDirty); break;
     case 'radialRepeat': buildRadialRepeatEditor(ctx.propsEl, shape, availableVars, onDirty); break;
     case 'repeat': buildRepeatEditor(ctx.propsEl, shape, availableVars, onDirty); break;
     case 'forEach': buildForEachEditor(ctx.propsEl, shape, onDirty); break;
+    case 'effectRef': buildEffectRefEditor(ctx.propsEl, shape, availableVars, onDirty); break;
   }
+
+  // Keyframe panel: explicit per-property ◆ keying into the timeline's key-target
+  // clip, plus a guided "add looping motion" generator (the low-friction on-ramp).
+  buildKeyframePanel(ctx.propsEl, rawShape, ctx.selectedShapePath, onDirty);
 
   // Setup section (use proxy — auto-creates setup overrides in non-BASE state)
   buildSetupEditor(ctx.propsEl, shape, availableVars, onDirty);
 
   // State overrides section (uses rawShape to show actual override data)
   buildOverridesSection(ctx.propsEl, rawShape, onDirty);
+}
+
+// ─── Asset-level panel (shown when no shape is selected) ─────────────────────
+
+function buildAssetPanel(art) {
+  const onDirty = () => ctx.markDirty();
+
+  const header = document.createElement('div');
+  header.className = 'props-header';
+  const title = document.createElement('span');
+  title.style.cssText = 'font-weight:bold;color:#d4a056;flex:1;';
+  title.textContent = `Asset: ${art.name || ctx.currentLabel || ''}`;
+  header.appendChild(title);
+  ctx.propsEl.appendChild(header);
+
+  const hint = document.createElement('div');
+  hint.style.cssText = 'color:#5a4a30;font-size:10px;padding:2px 4px 6px;';
+  hint.textContent = 'Asset-level settings (no shape selected). Pick a shape to edit it.';
+  ctx.propsEl.appendChild(hint);
+
+  ctx.propsEl.appendChild(TextInput('Name', art.name || '', v => { art.name = v; onDirty(); }).el);
+
+  // Space (aspect) — coords using w/h scale by these; never editable before.
+  const spaceGroup = PropertyGroup('Space (aspect ratio)');
+  const setW = (v) => { art.space = { widthFactor: v, heightFactor: art.space?.heightFactor ?? 1 }; onDirty(); };
+  const setH = (v) => { art.space = { widthFactor: art.space?.widthFactor ?? 1, heightFactor: v }; onDirty(); };
+  spaceGroup.addChild(NumberSlider('Width factor', 0.2, 3, 0.05, art.space?.widthFactor ?? 1, setW));
+  spaceGroup.addChild(NumberSlider('Height factor', 0.2, 3, 0.05, art.space?.heightFactor ?? 1, setH));
+  ctx.propsEl.appendChild(spaceGroup.el);
+
+  // State transition blend time (also on the state bar; consolidated here).
+  ctx.propsEl.appendChild(NumberSlider('Transition (ms)', 0, 2000, 50, art.transitionDuration || 0, v => {
+    art.transitionDuration = v; onDirty();
+  }).el);
+
+  // Declared states — persisted so empty states survive a reload.
+  const stateNames = (ctx.discoveredStates || []).filter(s => s !== 'BASE');
+  const statesGroup = PropertyGroup(`Declared states (${stateNames.length})`);
+  const note = document.createElement('div');
+  note.style.cssText = 'color:#5a4a30;font-size:9px;padding:2px 4px;';
+  note.textContent = stateNames.length ? stateNames.join(', ') : 'None — add states from the state bar above.';
+  statesGroup.body.appendChild(note);
+  ctx.propsEl.appendChild(statesGroup.el);
+
+  // Asset-level setup (lineWidth/alpha/colors/etc. applied before all shapes).
+  buildSetupEditor(ctx.propsEl, art, [], onDirty);
 }
 
 // ─── State Overrides ─────────────────────────────────────────────────────────
@@ -215,80 +301,6 @@ function addOverrideRow(parent, key, val, baseVal, onReset) {
   parent.appendChild(row);
 }
 
-// ─── Animations Section ─────────────────────────────────────────────────────
-
-function buildAnimationsSection(parent, artDef, shapePath, shape, stateNames, onDirty) {
-  const ANIMATION_TYPES = new Set(['group', 'oscillator', 'spinner', 'conditional']);
-
-  // Check if parent is an animation/group container
-  let hasParentAnimation = false;
-  if (shapePath.length >= 2) {
-    const parentPath = shapePath.slice(0, -1);
-    const parentShape = getShapeAtPath(artDef.shapes, parentPath);
-    if (parentShape && ANIMATION_TYPES.has(parentShape.type)) {
-      hasParentAnimation = true;
-      const group = PropertyGroup(`${parentShape.type === 'group' ? 'Group' : 'Animation'}: ${parentShape.type}`);
-
-      // Show parent's editable properties inline (use proxy for state-aware editing)
-      const parentProxy = createStateProxy(parentShape, ctx.currentEditState);
-      const availableVars = collectAvailableVars(artDef, parentPath);
-      const parentOnDirty = () => { ctx.markDirty(); };
-      switch (parentShape.type) {
-        case 'group': buildGroupEditor(group.body, parentProxy, availableVars, parentOnDirty); break;
-        case 'oscillator': buildOscillatorEditor(group.body, parentProxy, availableVars, stateNames, parentOnDirty); break;
-        case 'spinner': buildSpinnerEditor(group.body, parentProxy, availableVars, stateNames, parentOnDirty); break;
-        case 'conditional': buildConditionalEditor(group.body, parentProxy, stateNames, parentOnDirty); break;
-      }
-
-      // Remove animation button
-      const removeBtn = Button('Remove Animation', () => {
-        const newPath = removeParentAnimation(artDef, shapePath);
-        if (newPath) {
-          ctx.selectedShapePath = newPath;
-          ctx.markDirty();
-          ctx.rebuildTree();
-          ctx.rebuildProps();
-        }
-      }, 'subtle');
-      removeBtn.el.className += ' editor-btn-danger';
-      removeBtn.el.style.cssText += 'margin-top:4px;';
-      group.body.appendChild(removeBtn.el);
-
-      parent.appendChild(group.el);
-    }
-  }
-
-  // "Add Animation" dropdown
-  const addRow = document.createElement('div');
-  addRow.style.cssText = 'margin:4px 0;';
-  const addSel = document.createElement('select');
-  addSel.className = 'editor-select-input';
-  addSel.style.cssText = 'width:auto;font-size:10px;padding:2px 6px;';
-  const ph = document.createElement('option');
-  ph.textContent = hasParentAnimation ? '+ Add another animation...' : '+ Add animation...';
-  ph.value = '';
-  addSel.appendChild(ph);
-  for (const type of ['group', 'oscillator', 'spinner', 'conditional']) {
-    const o = document.createElement('option');
-    o.value = type;
-    o.textContent = type.charAt(0).toUpperCase() + type.slice(1);
-    addSel.appendChild(o);
-  }
-  addSel.addEventListener('change', () => {
-    if (!addSel.value) return;
-    const newChildPath = wrapShapeInAnimation(artDef, shapePath, addSel.value);
-    if (newChildPath) {
-      ctx.expandedPaths.add(pathToKey(shapePath));
-      ctx.selectedShapePath = newChildPath;
-      ctx.markDirty();
-      ctx.rebuildTree();
-      ctx.rebuildProps();
-    }
-  });
-  addRow.appendChild(addSel);
-  parent.appendChild(addRow);
-}
-
 // ─── Per-Type Shape Editors ──────────────────────────────────────────────────
 
 function buildGroupEditor(parent, shape, vars, onDirty) {
@@ -328,13 +340,34 @@ function buildCircleEditor(parent, shape, vars, onDirty) {
   parent.appendChild(CoordEditor('cx', shape.cx, vars, v => set('cx', v)).el);
   parent.appendChild(CoordEditor('cy', shape.cy, vars, v => set('cy', v)).el);
 
+  const r = ctx.previewRadius || 60;
   if (shape.radiusAbs !== undefined) {
-    parent.appendChild(NumberSlider('Radius (abs px)', 0.1, 10, 0.1, shape.radiusAbs, v => set('radiusAbs', v)).el);
+    if (typeof shape.radiusAbs === 'object' && shape.radiusAbs !== null) {
+      // Animated absolute radius, e.g. { base: 18, breathe: 6 }. Use the anim-var
+      // editor so the object is editable and its terms are preserved (a plain
+      // NumberSlider would render NaN and flatten it on first edit).
+      parent.appendChild(buildAnimVarEditor('Radius (abs px)', shape, 'radiusAbs', vars, 0.1, 60, 0.5, onDirty));
+    } else {
+      parent.appendChild(NumberSlider('Radius (abs px)', 0.1, 60, 0.5, shape.radiusAbs, v => set('radiusAbs', v)).el);
+    }
+    parent.appendChild(radiusModeToggle('→ use r-relative radius', () => {
+      const px = typeof shape.radiusAbs === 'object' ? (shape.radiusAbs.base || 0) : shape.radiusAbs;
+      delete shape.radiusAbs;
+      shape.radius = Math.round((px / r) * 1000) / 1000;
+      onDirty(); buildShapeProps();
+    }));
   } else {
     parent.appendChild(NumberSlider('Radius', 0.01, 1, 0.01, shape.radius || 0.1, v => set('radius', v)).el);
+    parent.appendChild(radiusModeToggle('→ use absolute px radius', () => {
+      shape.radiusAbs = Math.round((shape.radius || 0.1) * r * 10) / 10;
+      delete shape.radius;
+      onDirty(); buildShapeProps();
+    }));
   }
   if (shape.radiusOffset !== undefined) {
     parent.appendChild(NumberSlider('Radius Offset', -5, 5, 0.5, shape.radiusOffset, v => set('radiusOffset', v)).el);
+  } else {
+    parent.appendChild(addFieldButton('+ Radius offset', () => { shape.radiusOffset = 0; onDirty(); buildShapeProps(); }));
   }
   parent.appendChild(NumberSlider('Rotation', -Math.PI, Math.PI, 0.05, shape.rotation || 0, v => set('rotation', v)).el);
 
@@ -627,40 +660,112 @@ function buildBoltClusterEditor(parent, shape, vars, onDirty) {
   }
 }
 
-function buildSpinnerEditor(parent, shape, vars, _stateNames, onDirty) {
-  const set = (k, v) => { shape[k] = v; onDirty(); };
-  parent.appendChild(CoordEditor('cx', shape.cx, vars, v => set('cx', v)).el);
-  parent.appendChild(CoordEditor('cy', shape.cy, vars, v => set('cy', v)).el);
-  parent.appendChild(CoordEditor('orbitRadius', shape.orbitRadius || 0, vars, v => set('orbitRadius', v)).el);
-  parent.appendChild(NumberSlider('Rate', 0, 0.05, 0.001, shape.rate || 0.01, v => set('rate', v)).el);
-  parent.appendChild(NumberSlider('Copies', 1, 12, 1, shape.copies || 1, v => set('copies', v)).el);
+// ─── Keyframe panel (timeline keying + guided generator) ─────────────────────
 
-  const info = document.createElement('div');
-  info.style.cssText = 'color:#5a4a30;font-size:10px;padding:4px;';
-  info.textContent = `${(shape.shapes || []).length} child shape(s) \u2014 select in tree to edit`;
-  parent.appendChild(info);
+const _kfCloneVal = (v) => (v && typeof v === 'object' ? JSON.parse(JSON.stringify(v)) : v);
+
+/** Bump a value's dominant term by `amount` (for the guided looping generator). */
+function _kfBump(v, amount) {
+  if (typeof v === 'number') return v + amount;
+  if (v && typeof v === 'object' && !Array.isArray(v)) {
+    const term = ('base' in v) ? 'base' : 'r';
+    return { ...v, [term]: (v[term] || 0) + amount };
+  }
+  return v;
 }
 
-function buildOscillatorEditor(parent, shape, vars, stateNames, onDirty) {
-  const set = (k, v) => { shape[k] = v; onDirty(); };
-  parent.appendChild(TextInput('Variable', shape.var || 'v', v => set('var', v)).el);
-  parent.appendChild(NumberSlider('Rate', 0, 0.02, 0.0005, shape.rate || 0.003, v => set('rate', v)).el);
-  parent.appendChild(NumberSlider('Amplitude', 0, 2, 0.01, shape.amplitude || 0.4, v => set('amplitude', v)).el);
-  parent.appendChild(NumberSlider('Base', -2, 2, 0.01, shape.base || 0, v => set('base', v)).el);
-  parent.appendChild(NumberSlider('Default Value', -2, 2, 0.01, shape.defaultValue || 0, v => set('defaultValue', v)).el);
+/**
+ * Explicit keyframe controls for the selected shape: one ◆ button per
+ * keyframeable property (sets a key at the current playhead from the live value)
+ * plus a guided "looping motion" generator. All keying is explicit — no silent
+ * auto-key — so an edit never secretly becomes a keyframe.
+ */
+function buildKeyframePanel(parent, rawShape, path, onDirty) {
+  if (!rawShape) return;
+  const props = keyframeableProps(rawShape);
+  if (!props.length) return;
+  const art = ctx.currentArt;
+  const clipKey = ctx.keyTargetClip || '*';
+  const clipLabel = clipKey === '*' ? 'Always (every state)' : clipKey;
 
-  if (typeof shape.phase === 'string') {
-    parent.appendChild(TextInput('Phase', shape.phase, v => set('phase', v)).el);
-  } else {
-    parent.appendChild(NumberSlider('Phase', 0, 6.28, 0.1, shape.phase || 0, v => set('phase', v)).el);
+  const group = PropertyGroup(`Keyframes → ${clipLabel}`);
+
+  const hint = document.createElement('div');
+  hint.style.cssText = 'color:#5a4a30;font-size:9px;padding:2px 4px;';
+  hint.textContent = 'Scrub the timeline, then ◆ to set a key at the playhead. Switch clip in the timeline.';
+  group.body.appendChild(hint);
+
+  for (const p of props) {
+    const track = getTrack(rawShape, clipKey, p.prop);
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:6px;padding:1px 4px;font-size:11px;';
+    const lbl = document.createElement('span');
+    lbl.style.cssText = `flex:1;color:${track ? '#d4a056' : '#8a7a5a'};`;
+    lbl.textContent = p.label + (track ? `  ◆${track.length}` : '');
+    row.appendChild(lbl);
+    if (track) {
+      const loopBtn = Button('loop', () => {
+        const clip = clipMeta(art, clipKey);
+        makeLoopable(rawShape, clipKey, p.prop, clip ? clip.duration : 2000);
+        onDirty(); ctx.rebuildTimeline?.(); ctx.rebuildProps?.();
+      }, 'subtle');
+      loopBtn.el.title = 'Copy the first key to t=end (seamless loop)';
+      loopBtn.el.style.cssText += 'font-size:9px;padding:1px 5px;';
+      row.appendChild(loopBtn.el);
+    }
+    const keyBtn = Button('◆ key', () => {
+      ensureClip(art, clipKey);
+      const v = getPropValue(rawShape, p.prop);
+      setKeyframe(rawShape, clipKey, p.prop, Math.round(ctx.playhead || 0), _kfCloneVal(v ?? 0));
+      onDirty(); ctx.rebuildTimeline?.(); ctx.rebuildProps?.();
+    }, 'subtle');
+    keyBtn.el.title = `Set a keyframe for ${p.label} at the playhead`;
+    keyBtn.el.style.cssText += 'font-size:9px;padding:1px 6px;color:#d4a056;';
+    row.appendChild(keyBtn.el);
+    group.body.appendChild(row);
   }
 
-  if (!shape.activeStates) shape.activeStates = [];
-  parent.appendChild(TagListEditor('Active States', shape.activeStates, stateNames, v => { shape.activeStates = v; onDirty(); }).el);
+  // Guided generator: a one-click looping motion (min → max → min, easeInOutSine).
+  const gen = document.createElement('div');
+  gen.style.cssText = 'border-top:1px solid #2a2a3a;margin-top:4px;padding-top:4px;';
+  let genIdx = 0, amount = 0.1, periodSec = 2;
+  gen.appendChild(Select('Add motion', props.map((p, i) => ({ value: String(i), label: p.label })), '0', v => { genIdx = +v; }).el);
+  gen.appendChild(NumberSlider('Amount (±)', 0.01, 2, 0.01, amount, v => { amount = v; }).el);
+  gen.appendChild(NumberSlider('Period (s)', 0.2, 12, 0.1, periodSec, v => { periodSec = v; }).el);
+  gen.appendChild(Button('Add looping motion', () => {
+    const target = props[genIdx];
+    const durMs = Math.round(periodSec * 1000);
+    const existing = clipMeta(art, clipKey);
+    ensureClip(art, clipKey, { duration: existing ? existing.duration : durMs });
+    const dur = clipMeta(art, clipKey).duration;
+    const base = getPropValue(rawShape, target.prop) ?? (target.kind === 'coord' ? { base: 0 } : 0);
+    const peak = _kfBump(_kfCloneVal(base), amount);
+    setKeyframe(rawShape, clipKey, target.prop, 0, _kfCloneVal(base), 'easeInOutSine');
+    setKeyframe(rawShape, clipKey, target.prop, Math.round(dur / 2), peak, 'easeInOutSine');
+    setKeyframe(rawShape, clipKey, target.prop, dur, _kfCloneVal(base), 'easeInOutSine');
+    onDirty(); ctx.rebuildTimeline?.(); ctx.rebuildProps?.();
+  }, 'primary').el);
+  group.body.appendChild(gen);
 
+  parent.appendChild(group.el);
+}
+
+function buildEffectRefEditor(parent, shape, vars, onDirty) {
+  const set = (k, v) => { shape[k] = v; onDirty(); };
+  const ids = Object.keys(VFX_DEFS || {});
+  const opts = ids.map(id => ({ value: id, label: id + (VFX_DEFS[id]?.lifecycle === 'persistent' ? '' : ' (one-shot)') }));
+  if (!shape.effect || !ids.includes(shape.effect)) opts.unshift({ value: shape.effect || '', label: shape.effect || '(pick an effect)' });
+  parent.appendChild(Select('VFX Effect', opts, shape.effect || '', v => set('effect', v)).el);
+  parent.appendChild(CoordEditor('cx', shape.cx || 0, vars, v => set('cx', v)).el);
+  parent.appendChild(CoordEditor('cy', shape.cy || 0, vars, v => set('cy', v)).el);
+  parent.appendChild(NumberSlider('Scale (×r)', 0.1, 5, 0.05, shape.scale ?? 1, v => set('scale', v)).el);
+
+  const def = VFX_DEFS[shape.effect];
   const info = document.createElement('div');
-  info.style.cssText = 'color:#5a4a30;font-size:10px;padding:4px;';
-  info.textContent = `${(shape.shapes || []).length} child shape(s) \u2014 select in tree to edit`;
+  info.style.cssText = 'color:#7a6a4a;font-size:9px;padding:2px 4px;';
+  info.textContent = def
+    ? (def.lifecycle === 'persistent' ? 'Persistent phased effect — embeds live.' : 'Not persistent — will draw frozen. Pick a persistent effect.')
+    : 'References a VFX effect by id. Author effects in the VFX tab.';
   parent.appendChild(info);
 }
 
@@ -752,29 +857,51 @@ function buildParticlesEditor(parent, shape, vars, stateNames, onDirty) {
 
 function buildRepeatEditor(parent, shape, vars, onDirty) {
   const set = (k, v) => { shape[k] = v; onDirty(); };
+  const explain = document.createElement('div');
+  explain.style.cssText = 'color:#7a6a4a;font-size:9px;padding:2px 4px;';
+  explain.textContent = `Draws the children once per "${shape.var || 'i'}" value, stepping from\u2192to.`;
+  parent.appendChild(explain);
   parent.appendChild(TextInput('Variable', shape.var || 'i', v => set('var', v)).el);
   parent.appendChild(CoordEditor('From', shape.from, vars, v => set('from', v)).el);
   parent.appendChild(CoordEditor('To', shape.to, vars, v => set('to', v)).el);
   parent.appendChild(NumberSlider('Step', 0.01, 2, 0.01, shape.step || 0.25, v => set('step', v)).el);
 
+  const fromN = typeof shape.from === 'number' ? shape.from : (shape.from?.r ?? 0);
+  const toN = typeof shape.to === 'number' ? shape.to : (shape.to?.r ?? 0);
+  const stepN = shape.step || 0.25;
+  const copies = stepN > 0 ? Math.floor((toN - fromN) / stepN) + 1 : 0;
   const info = document.createElement('div');
   info.style.cssText = 'color:#5a4a30;font-size:10px;padding:4px;';
-  info.textContent = `${(shape.shapes || []).length} child shape(s) \u2014 select in tree to edit`;
+  info.textContent = `\u2248 ${copies > 0 ? copies : 0} copies \u00d7 ${(shape.shapes || []).length} child shape(s)`;
   parent.appendChild(info);
 }
 
 function buildForEachEditor(parent, shape, onDirty) {
+  const explain = document.createElement('div');
+  explain.style.cssText = 'color:#7a6a4a;font-size:9px;padding:2px 4px;';
+  explain.textContent = 'Draws the children once per item. One var name, or comma-separated for tuples.';
+  parent.appendChild(explain);
   parent.appendChild(TextInput('Variable(s)', Array.isArray(shape.var) ? shape.var.join(', ') : shape.var || 'p', v => {
     shape.var = v.includes(',') ? v.split(',').map(s => s.trim()) : v;
     onDirty();
   }).el);
-  parent.appendChild(TextInput('Items (JSON)', JSON.stringify(shape.items || []), v => {
-    try { shape.items = JSON.parse(v); onDirty(); } catch { /* ignore invalid JSON */ }
-  }).el);
+
+  const itemsInput = TextInput('Items (JSON)', JSON.stringify(shape.items || []), () => {});
+  const err = document.createElement('div');
+  err.style.cssText = 'color:#e08a6a;font-size:9px;min-height:11px;padding:0 4px;';
+  itemsInput.el.querySelector('input')?.addEventListener('input', (e) => {
+    try {
+      const parsed = JSON.parse(e.target.value);
+      if (!Array.isArray(parsed)) { err.textContent = 'Must be a JSON array.'; return; }
+      shape.items = parsed; err.textContent = `${parsed.length} item(s)`; onDirty();
+    } catch { err.textContent = 'Invalid JSON.'; }
+  });
+  parent.appendChild(itemsInput.el);
+  parent.appendChild(err);
 
   const info = document.createElement('div');
   info.style.cssText = 'color:#5a4a30;font-size:10px;padding:4px;';
-  info.textContent = `${(shape.shapes || []).length} child shape(s) \u2014 select in tree to edit`;
+  info.textContent = `\u2248 ${(shape.items || []).length} copies \u00d7 ${(shape.shapes || []).length} child shape(s)`;
   parent.appendChild(info);
 }
 

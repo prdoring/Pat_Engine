@@ -13,6 +13,7 @@
       "positional": true,
       "steps": [
         { "type": "signal", "name": "setState", "data": { "state": "happy" }, "delay": 0 },
+        { "type": "signal", "name": "restartClip", "delay": 0 },
         { "type": "vfx", "effect": "jolt", "delay": 0, "offsetRange": { "x": [-6, 6], "y": [-10, -4] } },
         { "type": "sfx", "sound": "happyChirp", "delay": 0, "repeat": [2, 3], "repeatDelay": 140 },
         { "type": "signal", "name": "clearState", "delay": 900 }
@@ -22,6 +23,7 @@
       "positional": true,
       "steps": [
         { "type": "signal", "name": "setState", "data": { "state": "scared" }, "delay": 0 },
+        { "type": "signal", "name": "restartClip", "delay": 0 },
         { "type": "vfx", "effect": "jolt", "delay": 0 },
         { "type": "sfx", "sound": "squeak", "delay": 0 },
         { "type": "signal", "name": "clearState", "delay": 1200 }

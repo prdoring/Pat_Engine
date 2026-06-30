@@ -320,11 +320,24 @@ drawUnifiedArt(ctx, r, color, art.critters.blob, state, now /*, transition?, dur
 
 - `r` scales the whole asset; `color` is the default fill/stroke when a shape omits its own.
 - `state` selects per-shape `states: { <state>: {…} }` overrides + `visibleStates: [...]`.
-- Coordinates: plain number = `val * r`; object `{ r, w, h, <animVar> }` = linear
-  combination (each term scaled by `r`); `base` = **unscaled** additive constant; `…Abs`
-  keys (e.g. `radiusAbs`) are absolute pixels.
-- Animators: a `group` may declare `animators: [{ type:"oscillator", var, rate, amplitude,
-  base }]`; `spinner` is its own shape type. Unknown shape types warn once (dev) and skip.
+- Coordinates: plain number = `val * r`; object `{ r, w, h }` = linear combination (each term
+  scaled by `r`); `base` = **unscaled** additive constant; `…Abs` keys (e.g. `radiusAbs`) are
+  absolute pixels.
+- **Keyframe animation:** asset-level `animations: { "*"|<state>: { duration, loop } }` declares
+  clips (the `"*"` clip composites under every state); per-shape `anim: { <clipKey>: { <propPath>:
+  [ { t, v, ease? } ] } }` tweens any property (`cx`, `radiusAbs`, `rotation`, `setup.alpha`,
+  `points.2`, …) between keys (`ease` defaults to `easeInOutSine`; colors lerp in sRGB). Looping
+  clips use absolute time (epoch 0); `loop:false` clips play once from `transition.startTime` and
+  hold the end frame. A state change pose-crossfades over `transitionDuration`. The editor scrubs a
+  clip via `transition.animTime[clipKey]`; `restartClip` re-stamps the play-once epoch. Unknown shape
+  types warn once (dev) and skip. (The legacy oscillator/spinner `animators` system was removed; the
+  one lost capability is per-copy `phase` staggering inside `repeat`/`forEach`/`radialRepeat`.)
+- **`effectRef`** embeds a VFX effect by id: `{ type:"effectRef", effect, cx, cy, scale? }`
+  draws a **persistent** phased VFX effect (a one-shot draws frozen). The interpreter stays
+  data-agnostic: the host injects the lookup via `setEffectResolver(id => VFX_DEFS[id])` —
+  wired in `game/main.js`, `game/shots.js`, and the art-editor preview. This is the seam for
+  unifying particle authoring in the VFX tab; the legacy art `particles` shape still renders
+  but is deprecated for new authoring.
 - Always draw under the camera transform (see Critter Garden's `GardenRenderer._drawArtAt`):
   `translate(screen); scale(zoom); drawUnifiedArt(ctx, r, ...)` so absolute radii, line
   widths, and glow scale with zoom too.
@@ -538,17 +551,32 @@ All content lives in `data/*.json` and is editable in the browser editor at `/ed
 sub-tabs). The visual editors are retargeted purely by `data/editor-manifest.json`; the audio editors
 treat `sfx.json`/`music.json` as the opaque source of truth (no editor code changes per project).
 
+The **Art editor** does full asset CRUD (sidebar **+ New** / hover rename·duplicate·delete),
+gesture-scoped **undo/redo** (`Ctrl+Z`/`Shift+Z`/`Y`, per-asset, restore-in-place), **canvas
+click-to-select** + drag, **vertex/radius handles**, tree **hide/solo/lock**, arrow-key nudge,
+copy/paste shapes (`Ctrl+C/V`), an asset-level settings panel (select nothing), live "= N px"
+coord readouts, a **keyframe timeline** (forked from the MIDI editor's playhead/transport feel:
+`Space` play/pause, ruler scrub, `Ctrl`/`Shift`+wheel zoom/pan, diamonds you drag/add/delete,
+Loop-vs-Once clips, a per-property `◆` key button + a guided "looping motion" generator in the
+props panel), and `effectRef` for embedding VFX effects. All CRUD/naming uses themed modals
+(`modal*` in `editorShared.js`), not native `prompt`/`confirm`. The pure, DOM-free logic lives in
+`editors/art{AssetOps,CoordModel,History,Keyframes}.js` (unit-tested in Node like `musicModel.js`).
+
 ### Authoring shapes (current schemas)
 
 **Art** (`{ "<collection>": { "<id>": asset } }`): each asset is
-`{ name, states:[...], space?, setup?, shapes:[...] }`. Per-shape state overrides use
-**`states: { <state>: {…} }`** (not `stateOverrides`). See §6 Art for coords/animators.
+`{ name, states:[...], space?, setup?, animations?, shapes:[...] }`. Per-shape state overrides use
+**`states: { <state>: {…} }`** (not `stateOverrides`); motion is keyframe clips
+(`animations` + per-shape `anim`). See §6 Art for coords/keyframes.
 
 **VFX** (`{ "effects"? : ... }` consumed as `VFX_DEFS`): `phased` effects have
 `phases[].layers[]` of primitives (`filledCircle`, `gradientCircle`, `strokeRing`,
-`dashedRing`, `spikeLines`); trails/beams have type-specific fields. Value forms: static,
-`{from,to}`, `{from,to,modulate:{freq,amp}}`, `{base,amplitude,freq}` (persistent),
-`{local,remote}` (two-variant color).
+`dashedRing`, `spikeLines`, plus the randomized-cloud `scatterDots`/`scatterLines`/
+`scatterStrips` ported from the old art emitters); trails/beams have type-specific fields.
+Value forms: static, `{from,to}`, `{from,to,modulate:{freq,amp}}`, `{base,amplitude,freq}`
+(persistent), `{local,remote}` (two-variant color). Author particle clouds here (as a
+`scatter*` layer in a `persistent` effect) and embed them in art via an `effectRef` shape —
+the art `particles` shape type is deprecated.
 
 **SFX** (`{ categories:[...], sounds:{ id: cfg } }`): each `cfg` is
 `{ volume, range, category, loop, synth }`. `synth` is either a shorthand

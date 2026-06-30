@@ -12,7 +12,7 @@ export class GardenRenderer {
     this.fx = effectsRenderer;
   }
 
-  _drawArtAt(def, worldX, worldY, r, color, state, now) {
+  _drawArtAt(def, worldX, worldY, r, color, state, now, transition) {
     const zoom = this.camera.getZoom?.() ?? 1;
     const { sx, sy } = this.camera.worldToScreen(worldX, worldY);
     const ctx = this.ctx;
@@ -21,7 +21,7 @@ export class GardenRenderer {
     // Scale via the canvas transform (not r*zoom) so EVERYTHING scales with zoom:
     // r-relative coords, absolute `…Abs` radii, line widths, AND shadow blur (the glow).
     ctx.scale(zoom, zoom);
-    drawUnifiedArt(ctx, r, color, def, state, now);
+    drawUnifiedArt(ctx, r, color, def, state, now, transition);
     ctx.restore();
   }
 
@@ -57,7 +57,12 @@ export class GardenRenderer {
   drawCritters(critters, now) {
     for (const c of critters) {
       const def = this.art.critters[c.species];
-      if (def) this._drawArtAt(def, c.x, c.y, c.radius, c.color, c.state, now);
+      // Per-entity transition object: carries the play-once keyframe epoch
+      // (startTime), the pose-crossfade snapshot, and state-blend tracking.
+      if (def) {
+        c._artTransition = c._artTransition || {};
+        this._drawArtAt(def, c.x, c.y, c.radius, c.color, c.state, now, c._artTransition);
+      }
     }
   }
 

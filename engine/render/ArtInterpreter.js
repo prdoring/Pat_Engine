@@ -4,7 +4,21 @@
  * (multiplied by `r` at render time) unless marked with `Abs` suffix.
  */
 
+import { drawPhasedEffect } from './VFXInterpreter.js';
+import { lerpValue, lerpKeyValue, sampleClips, clipLocalTime } from './interp.js';
+
+// Re-export so existing importers of lerpValue keep working (it now lives in the
+// pure, canvas-free interp module shared with the editor timeline).
+export { lerpValue };
+
 const PI = Math.PI;
+
+// Optional VFX-effect resolver, injected by the host (game / editor / shots) so
+// the pure interpreter never imports project data. `effectRef` shapes name a VFX
+// effect by id; the host resolves id → definition. Left null → effectRef is a no-op.
+let _effectResolver = null;
+export function setEffectResolver(fn) { _effectResolver = fn; }
+const _effectWarn = new Set();
 
 /**
  * Parse a tiny arithmetic expression with a recursive-descent parser.
@@ -117,8 +131,8 @@ function finishShape(ctx, shape) {
 /**
  * Resolve a coordinate value in the unified coordinate system.
  * - number: val * r (backwards compatible with module art)
- * - object: { base: c, r: f, w: f, h: f, <animVar>: f } — linear combination
- *   result = c + f_r * r + f_w * w + f_h * h + f_var * var * r
+ * - object: { base: c, r: f, w: f, h: f } — linear combination
+ *   result = c + f_r * r + f_w * w + f_h * h
  *   `base` is an ABSOLUTE (non-r-scaled) additive constant term, consistent
  *   with how `resolveSetupVal` treats `base`.
  * - string: look up in varMap (for forEach/repeat loop vars), multiply by r
@@ -137,7 +151,6 @@ export function resolveCoord(val, dc, varMap) {
       else if (k === 'w') { result += v * dc.w; }
       else if (k === 'h') { result += v * dc.h; }
       else if (varMap && varMap[k] !== undefined) { result += varMap[k] * v * dc.r; }
-      else if (dc.animVars && dc.animVars[k] !== undefined) { result += dc.animVars[k] * v * dc.r; }
     }
     return result;
   }
@@ -172,16 +185,17 @@ function drawRoundedRectPath(ctx, x, y, w2, h2, cr) {
 }
 
 /**
- * Resolve a setup property value. Supports plain numbers and anim-var objects.
- * Object form: { base: 0.5, pulse: 0.5 } → 0.5 + animVars.pulse * 0.5
+ * Resolve a setup/size property value. Plain numbers pass through; the object
+ * form `{ base: N }` sums its `base` term (keyframe tracks supply plain numbers,
+ * but `radiusAbs` and friends may still be authored as `{ base: N }` coord-objects
+ * so they interpolate with the same lerp as other coord values).
  */
-function resolveSetupVal(val, dc) {
+function resolveSetupVal(val, _dc) {
   if (typeof val === 'number') return val;
   if (typeof val === 'object' && val !== null) {
     let result = 0;
     for (const [k, v] of Object.entries(val)) {
       if (k === 'base') { result += v; }
-      else if (dc.animVars && dc.animVars[k] !== undefined) { result += dc.animVars[k] * v; }
     }
     return result;
   }
@@ -236,34 +250,10 @@ function applyStateOverrides(shape, state) {
   return result;
 }
 
-/**
- * Interpolate between two values. Handles numbers, coordinate objects,
- * arrays (points), and nested objects (anim-var, setup). Non-numeric values
- * snap to `b` when t >= 0.5.
- */
-function lerpValue(a, b, t) {
-  if (a === undefined) return b;
-  if (b === undefined) return a;
-  if (typeof a === 'number' && typeof b === 'number') return a + (b - a) * t;
-  if (Array.isArray(a) && Array.isArray(b)) {
-    const len = Math.max(a.length, b.length);
-    const result = [];
-    for (let i = 0; i < len; i++) result.push(lerpValue(a[i], b[i], t));
-    return result;
-  }
-  if (typeof a === 'object' && typeof b === 'object' && a !== null && b !== null) {
-    const result = {};
-    const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
-    for (const k of keys) result[k] = lerpValue(a[k], b[k], t);
-    return result;
-  }
-  return t < 0.5 ? a : b;
-}
-
 /** Structural keys that should not be interpolated between states. */
 const BLEND_SKIP = new Set([
   'type', 'name', 'shapes', 'children', 'states', 'stateOverrides',
-  'animators', 'activeStates', 'visibleStates', 'var',
+  'visibleStates', 'anim',
 ]);
 
 /**
@@ -296,41 +286,6 @@ function resolveState(shape, dc) {
 }
 
 /**
- * Process animators on a shape/group, updating the draw context.
- * Returns { dc, spinner } — the (possibly modified) dc and any spinner animator.
- * If a spinner is found, the caller must handle the copies/rotation loop.
- */
-function processAnimators(dc, animators, varMap) {
-  let currentDc = dc;
-  let spinnerAnimator = null;
-
-  if (!animators) return { dc: currentDc, spinner: null };
-
-  for (const anim of animators) {
-    switch (anim.type) {
-      case 'oscillator': {
-        const isActive = !anim.activeStates || anim.activeStates.length === 0 || anim.activeStates.includes(dc.state);
-        const phase = typeof anim.phase === 'string' && varMap && varMap[anim.phase] !== undefined
-          ? varMap[anim.phase]
-          : (anim.phase || 0);
-        const value = isActive
-          ? Math.sin(dc.now * anim.rate + phase) * anim.amplitude + (anim.base || 0)
-          : (anim.defaultValue ?? 0);
-        currentDc = { ...currentDc, animVars: { ...currentDc.animVars, [anim.var]: value } };
-        break;
-      }
-      case 'spinner': {
-        // Only one spinner per shape — last one wins
-        spinnerAnimator = anim;
-        break;
-      }
-    }
-  }
-
-  return { dc: currentDc, spinner: spinnerAnimator };
-}
-
-/**
  * Get the children array from a container shape.
  * Supports both `children` (preferred for groups) and `shapes` (for repeat/forEach).
  */
@@ -338,14 +293,92 @@ function getChildren(shape) {
   return shape.children || shape.shapes || [];
 }
 
+// ── Keyframe sampling (timeline animation) ──────────────────────────────────
+//
+// A shape may carry `anim: { <clipKey>: { <propPath>: [ {t,v,ease?} ] } }`, with
+// clip metadata (duration/loop) at `artDef.animations[clipKey]`. The interpreter
+// samples each applicable clip's tracks at its clip-local time and merges the
+// resulting { propPath: value } map over the shape — a time-varying analogue of
+// `applyStateOverrides`. This is a generic primitive: no game noun, no gameplay
+// branch. The actual interpolation math lives in interp.js.
+
+const _idxRe = /^\d+$/;
+const _idx = (p) => (_idxRe.test(p) ? Number(p) : p);
+
+/**
+ * Merge a sampled { propPath: value } map onto a fresh clone of `shape`. Dotted
+ * paths (`setup.alpha`, `points.2`, `segments.0.1`) clone-on-write down the path
+ * so the registry/raw art is never mutated. `shape` is already a clone produced
+ * by resolveState only when overrides existed — so we ALWAYS shallow-clone here
+ * and clone each nested container the first time it's touched.
+ */
+function applySampledOverrides(shape, sampled) {
+  const out = { ...shape };
+  for (const path in sampled) {
+    const v = sampled[path];
+    const parts = path.split('.');
+    if (parts.length === 1) { out[parts[0]] = v; continue; }
+    let node = out, src = shape;
+    for (let i = 0; i < parts.length - 1; i++) {
+      const key = _idx(parts[i]);
+      const srcChild = src ? src[key] : undefined;
+      if (node[key] === srcChild) {  // not yet cloned on this output branch
+        node[key] = Array.isArray(srcChild) ? srcChild.slice() : { ...(srcChild || {}) };
+      }
+      node = node[key];
+      src = srcChild;
+    }
+    node[_idx(parts[parts.length - 1])] = v;
+  }
+  return out;
+}
+
+/** Lerp two sampled pose maps (used for the state-entry/exit pose crossfade). */
+function lerpPoseMaps(from, to, t) {
+  const out = {};
+  const keys = new Set([...Object.keys(from), ...(to ? Object.keys(to) : [])]);
+  for (const k of keys) {
+    const a = from[k], b = to ? to[k] : undefined;
+    if (a === undefined) out[k] = b;
+    else if (b === undefined) out[k] = a;
+    else out[k] = lerpKeyValue(a, b, t);
+  }
+  return out;
+}
+
+/**
+ * Pose-snapshot crossfade. On a state change the entity's `transition` froze the
+ * previous frame's composited pose per shape (`_snapPose`, keyed by the raw shape
+ * object). While the static-override blend is in progress (`blendPrev`/`blendT`),
+ * ease from that frozen pose into the freshly-sampled pose — killing the pop when
+ * an ambient clip is at an arbitrary phase at entry, or a one-shot holds its end
+ * frame at exit. Always records the (possibly blended) live pose so the next state
+ * change snapshots a continuous value. No-op (returns `sampled`) when the entity
+ * carries no pose store (props/title) or no blend window is open.
+ */
+function applyPoseBlend(dc, rawShape, sampled) {
+  const t = dc.transition;
+  if (!t || !t._livePose) return sampled;
+  let result = sampled;
+  if (dc.blendPrev != null && dc.blendT < 1 && t._snapPose) {
+    const from = t._snapPose.get(rawShape);
+    if (from) result = lerpPoseMaps(from, sampled || {}, dc.blendT);
+  }
+  if (result) t._livePose.set(rawShape, result);
+  return result;
+}
+
 /** Dedup sets/flags for one-time dev warnings (avoid console spam per frame). */
 const _unknownShapeTypes = new Set();
 let _repeatWarned = false;
+let _legacyAnimWarned = false;
 
 /**
  * Draw a single shape in the unified art system.
  */
 function drawShapeU(ctx, dc, shape, varMap) {
+  const rawShape = shape; // stable identity for the keyframe pose store
+
   // Visibility check (during transitions, show if visible in either prev or current state)
   if (shape.visibleStates) {
     const visInCurr = shape.visibleStates.includes(dc.state);
@@ -355,6 +388,15 @@ function drawShapeU(ctx, dc, shape, varMap) {
 
   // Merge state overrides (with optional transition blending)
   shape = resolveState(shape, dc);
+
+  // Merge keyframe-animation samples (timeline). Sampled values are absolute and
+  // win over static state overrides for the same property; applied before setup /
+  // rotation below so keyframed setup.* / rotation take effect this frame.
+  if (rawShape.anim && dc.clocks) {
+    let sampled = sampleClips(rawShape.anim, dc.state, dc.clocks);
+    sampled = applyPoseBlend(dc, rawShape, sampled);
+    if (sampled) shape = applySampledOverrides(shape, sampled);
+  }
 
   // Per-shape setup
   if (shape.setup) applySetupUnified(ctx, dc, shape.setup);
@@ -530,45 +572,27 @@ function drawShapeU(ctx, dc, shape, varMap) {
     // ── Container Types ──
 
     case 'group': {
-      const { dc: innerDc, spinner } = processAnimators(dc, shape.animators, varMap);
-      const children = getChildren(shape);
-
-      if (spinner) {
-        // Spinner: translate to pivot, rotate copies, optional orbit radius
-        const cx = resolveCoord(spinner.cx, innerDc, varMap);
-        const cy = resolveCoord(spinner.cy, innerDc, varMap);
-        const angle = (innerDc.now * spinner.rate) % (PI * 2);
-        const copies = spinner.copies || 1;
-        const orb = spinner.orbitRadius ? resolveCoord(spinner.orbitRadius, innerDc, varMap) : 0;
-        for (let c = 0; c < copies; c++) {
-          ctx.save();
-          ctx.translate(cx, cy);
-          ctx.rotate(angle + (c * PI * 2 / copies));
-          if (orb) ctx.translate(orb, 0);
-          for (const child of children) {
-            ctx.save();
-            drawShapeU(ctx, innerDc, child, varMap);
-            ctx.restore();
-          }
-          ctx.restore();
-        }
-      } else {
-        // Plain group: apply cx/cy translation and static rotation
-        const hasTx = shape.cx !== undefined || shape.cy !== undefined || shape.rotation !== undefined;
-        if (hasTx) {
-          ctx.save();
-          const cx = shape.cx ? resolveCoord(shape.cx, innerDc, varMap) : 0;
-          const cy = shape.cy ? resolveCoord(shape.cy, innerDc, varMap) : 0;
-          if (cx || cy) ctx.translate(cx, cy);
-          if (shape.rotation) ctx.rotate(evalAngle(shape.rotation));
-        }
-        for (const child of children) {
-          ctx.save();
-          drawShapeU(ctx, innerDc, child, varMap);
-          ctx.restore();
-        }
-        if (hasTx) ctx.restore();
+      if (shape.animators && !_legacyAnimWarned) {
+        _legacyAnimWarned = true;
+        console.warn('[ArtInterpreter] group.animators is no longer supported — convert to keyframe `anim` tracks. Ignored. Further warnings suppressed.');
       }
+      const children = getChildren(shape);
+      // Apply cx/cy translation and rotation (any of which may be keyframed —
+      // `shape` already carries the sampled values from drawShapeU's merge).
+      const hasTx = shape.cx !== undefined || shape.cy !== undefined || shape.rotation !== undefined;
+      if (hasTx) {
+        ctx.save();
+        const cx = shape.cx ? resolveCoord(shape.cx, dc, varMap) : 0;
+        const cy = shape.cy ? resolveCoord(shape.cy, dc, varMap) : 0;
+        if (cx || cy) ctx.translate(cx, cy);
+        if (shape.rotation) ctx.rotate(evalAngle(shape.rotation));
+      }
+      for (const child of children) {
+        ctx.save();
+        drawShapeU(ctx, dc, child, varMap);
+        ctx.restore();
+      }
+      if (hasTx) ctx.restore();
       break;
     }
 
@@ -636,48 +660,6 @@ function drawShapeU(ctx, dc, shape, varMap) {
           drawShapeU(ctx, dc, child, varMap);
           ctx.restore();
         }
-        ctx.restore();
-      }
-      break;
-    }
-
-    // ── Legacy Animation Shape Types (standalone, without group wrapper) ──
-
-    case 'spinner': {
-      const cx = resolveCoord(shape.cx, dc, varMap);
-      const cy = resolveCoord(shape.cy, dc, varMap);
-      const angle = (dc.now * shape.rate) % (PI * 2);
-      const copies = shape.copies || 1;
-      const orb = shape.orbitRadius ? resolveCoord(shape.orbitRadius, dc, varMap) : 0;
-      const children = getChildren(shape);
-      for (let c = 0; c < copies; c++) {
-        ctx.save();
-        ctx.translate(cx, cy);
-        ctx.rotate(angle + (c * PI * 2 / copies));
-        if (orb) ctx.translate(orb, 0);
-        for (const child of children) {
-          ctx.save();
-          drawShapeU(ctx, dc, child, varMap);
-          ctx.restore();
-        }
-        ctx.restore();
-      }
-      break;
-    }
-
-    case 'oscillator': {
-      const isActive = !shape.activeStates || shape.activeStates.length === 0 || shape.activeStates.includes(dc.state);
-      const phase = typeof shape.phase === 'string' && varMap && varMap[shape.phase] !== undefined
-        ? varMap[shape.phase]
-        : (shape.phase || 0);
-      const value = isActive
-        ? Math.sin(dc.now * shape.rate + phase) * shape.amplitude + (shape.base || 0)
-        : (shape.defaultValue ?? 0);
-      const newDc = { ...dc, animVars: { ...dc.animVars, [shape.var]: value } };
-      const children = getChildren(shape);
-      for (const child of children) {
-        ctx.save();
-        drawShapeU(ctx, newDc, child, varMap);
         ctx.restore();
       }
       break;
@@ -773,6 +755,30 @@ function drawShapeU(ctx, dc, shape, varMap) {
       break;
     }
 
+    case 'effectRef': {
+      // Embed a referenced VFX effect (generic primitive — no game noun). Only a
+      // PERSISTENT phased effect embeds correctly (progress = null draws all phases);
+      // a one-shot would draw frozen, so we warn once.
+      if (!_effectResolver) break;
+      const def = _effectResolver(shape.effect);
+      if (!def) {
+        if (!_effectWarn.has('miss:' + shape.effect)) {
+          _effectWarn.add('miss:' + shape.effect);
+          console.warn(`[ArtInterpreter] effectRef ${JSON.stringify(shape.effect)} not found (ignored).`);
+        }
+        break;
+      }
+      if (def.lifecycle !== 'persistent' && !_effectWarn.has('np:' + shape.effect)) {
+        _effectWarn.add('np:' + shape.effect);
+        console.warn(`[ArtInterpreter] effectRef ${JSON.stringify(shape.effect)} is not a persistent effect; it will draw frozen.`);
+      }
+      const ecx = resolveCoord(shape.cx, dc, varMap);
+      const ecy = resolveCoord(shape.cy, dc, varMap);
+      const scale = (shape.scale != null ? shape.scale : 1) * dc.r;
+      drawPhasedEffect(ctx, ecx, ecy, def, null, scale, dc.now, { state: dc.state });
+      break;
+    }
+
     default: {
       // Unknown shape type — warn once per type so authors get feedback,
       // but never throw or spam the console each frame.
@@ -795,8 +801,10 @@ function drawShapeU(ctx, dc, shape, varMap) {
  * @param {object} artDef — art asset definition: { name?, states?, space?, setup?, shapes }
  * @param {string|null} state — current state name (null for stateless assets)
  * @param {number} now — timestamp for animations (0 for static assets)
- * @param {object} [transition] — optional mutable object for smooth state transitions:
- *   { currentState, prevState, startTime } — managed automatically per call
+ * @param {object} [transition] — optional mutable object for smooth state transitions
+ *   AND the per-entity keyframe clock: { currentState, prevState, startTime,
+ *   animTime?, _livePose?, _snapPose? } — managed automatically per call. The
+ *   editor passes `animTime` (a { clipKey: ms } scrub override map).
  * @param {number} [durationOverride] — optional override for artDef.transitionDuration (ms)
  */
 export function drawUnifiedArt(ctx, r, color, artDef, state, now, transition, durationOverride) {
@@ -813,12 +821,42 @@ export function drawUnifiedArt(ctx, r, color, artDef, state, now, transition, du
       transition.prevState = transition.currentState;
       transition.startTime = t;
       transition.currentState = state || null;
+      // Snapshot the last composited keyframe pose so it can crossfade into the
+      // new clip (swap is O(1); _livePose repopulates this frame).
+      if (artDef.animations) {
+        transition._snapPose = transition._livePose || null;
+        transition._livePose = new WeakMap();
+      }
     }
+    if (artDef.animations && !transition._livePose) transition._livePose = new WeakMap();
     if (duration > 0 && transition.prevState !== undefined && transition.prevState !== transition.currentState) {
       const elapsed = t - (transition.startTime || 0);
       if (elapsed < duration) {
         blendT = elapsed / duration;
         blendPrev = transition.prevState;
+      }
+    }
+  }
+
+  // Per-clip keyframe clocks: the applicable clips are the ambient "*" and the
+  // current state. Looping clips are absolute-time (epoch 0 → never reset on a
+  // state change); play-once clips key off the state-entry epoch (startTime) and
+  // hold their end frame. The editor overrides per-clip time via transition.animTime.
+  let clocks = null;
+  if (artDef.animations) {
+    const t = now || 0;
+    const animTime = transition && transition.animTime;
+    for (const clipKey of ['*', state || null]) {
+      if (clipKey == null) continue;
+      const clip = artDef.animations[clipKey];
+      if (!clip) continue;
+      if (!clocks) clocks = {};
+      if (animTime && animTime[clipKey] != null) {
+        clocks[clipKey] = animTime[clipKey];
+      } else {
+        const loop = clip.loop !== false;
+        const epoch = loop ? 0 : (transition && transition.startTime) || 0;
+        clocks[clipKey] = clipLocalTime(t, epoch, clip.duration, loop);
       }
     }
   }
@@ -831,9 +869,10 @@ export function drawUnifiedArt(ctx, r, color, artDef, state, now, transition, du
     state: state || null,
     now: now || 0,
     color,
-    animVars: {},
     blendPrev,
     blendT,
+    clocks,
+    transition: transition || null,
   };
 
   // Apply top-level setup and base color

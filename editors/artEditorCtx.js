@@ -24,6 +24,14 @@ export const ctx = {
   hoveredShapePath: null,
   expandedPaths: new Set(),
 
+  // Editor-only view state (path-key strings; never serialized to art data)
+  editorHidden: new Set(),   // shapes hidden from the preview + un-pickable
+  editorLocked: new Set(),   // shapes that can't be dragged/nudged
+  editorSolo: null,          // path-key of the sole visible branch, or null
+  clipboard: null,           // a copied shape (deep clone), pasteable into any asset
+  snapGrid: false,           // snap on-canvas drags to a coarse grid
+  frozenNow: null,           // freeze animation time during a drag (null = live)
+
   // Preview
   saveManagers: {},
   preview: null,
@@ -34,6 +42,13 @@ export const ctx = {
   previewRadius: 60,
   showGrid: true,
   previewTransition: { currentState: null, prevState: null, startTime: 0 },
+
+  // Keyframe timeline
+  timeline: null,            // the createArtTimeline() instance
+  keyTargetClip: '*',        // which clip (state or "*") edits/auto-keys write into
+  playhead: 0,               // current clip-local time (ms) shown in the preview
+  autoKey: false,            // when on, editing a property writes a keyframe at the playhead
+  selectedKeyframe: null,    // { path, prop, t } of the picked diamond, or null
 
   // DOM refs
   container: null,
@@ -50,6 +65,7 @@ export const ctx = {
   rebuildProps: null,
   rebuildStateBar: null,
   rebuildControls: null,
+  rebuildTimeline: null,
   clearProps: null,
   markDirty: null,
   rebuildSaveRow: null,
@@ -66,10 +82,15 @@ export function FILE_DATA() {
 
 // ─── Shape Normalization ─────────────────────────────────────────────────────
 
+let _legacyAnimWarned = false;
+
 /**
- * Recursively walk any nested object and normalize all shapes arrays found.
- * Converts group+animators to standalone shape types so the editor has one
- * consistent format.  The renderer still supports both, so this is safe.
+ * Recursively walk any nested object and normalize all shapes arrays found —
+ * the renderer accepts both `children` and `shapes` for container kids, but the
+ * editor works in one format (`shapes`), so we rename `children` → `shapes` on
+ * load. Animation is now keyframe tracks (`shape.anim`), not nested animator
+ * shapes, so there's nothing else to convert; legacy oscillator/spinner/animator
+ * data is detected and warned about (see normalizeShapes) rather than migrated.
  */
 export function normalizeArtData(obj) {
   if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return;
@@ -90,8 +111,9 @@ function normalizeShapes(shapes) {
   if (!Array.isArray(shapes)) return;
   for (let i = 0; i < shapes.length; i++) {
     const shape = shapes[i];
-    if (shape.type === 'group' && shape.animators && shape.animators.length > 0) {
-      shapes[i] = convertGroupAnimators(shape);
+    if (!_legacyAnimWarned && (shape.animators || shape.type === 'oscillator' || shape.type === 'spinner')) {
+      _legacyAnimWarned = true;
+      console.warn('[artEditor] This asset uses the old oscillator/spinner animation system, which has been removed. Re-author its motion with keyframe tracks in the timeline. Legacy animation data is ignored. Further warnings suppressed.');
     }
     // Recurse into children
     const children = shapes[i].shapes || shapes[i].children;
@@ -104,34 +126,6 @@ function normalizeShapes(shapes) {
       normalizeShapes(shapes[i].shapes);
     }
   }
-}
-
-/**
- * Convert a group with animators into nested standalone shape types.
- * { type: "group", animators: [{type: "oscillator", ...}], children: [...] }
- * becomes { type: "oscillator", ..., shapes: [...] }
- */
-function convertGroupAnimators(group) {
-  const children = group.children || group.shapes || [];
-  // Properties that belong to the group itself (not to animators)
-  const groupProps = {};
-  for (const [k, v] of Object.entries(group)) {
-    if (k === 'type' || k === 'animators' || k === 'children' || k === 'shapes') continue;
-    groupProps[k] = v;
-  }
-
-  // Build nested wrappers from inside out
-  let inner = children;
-  const animators = [...group.animators];
-  // Innermost animator wraps the children directly
-  for (let i = animators.length - 1; i >= 0; i--) {
-    const anim = animators[i];
-    const wrapper = { ...anim, shapes: inner };
-    // First (outermost) animator gets the group's props (name, visibleStates, setup, etc.)
-    if (i === 0) Object.assign(wrapper, groupProps);
-    inner = [wrapper];
-  }
-  return inner[0];
 }
 
 // ─── Path Helpers ────────────────────────────────────────────────────────────
@@ -166,7 +160,6 @@ export function shapeHasStateRef(shape, stateName) {
   if (stateName === 'BASE') return false;
   if (shape.stateOverrides && shape.stateOverrides[stateName]) return true;
   if (shape.states && typeof shape.states === 'object' && !Array.isArray(shape.states) && shape.states[stateName]) return true;
-  if (shape.activeStates && shape.activeStates.includes(stateName)) return true;
   if (shape.visibleStates && shape.visibleStates.includes(stateName)) return true;
   return false;
 }
@@ -176,8 +169,7 @@ export function shapeHasStateRef(shape, stateName) {
 /** Keys that always read/write the base shape, never go to overrides. */
 const STRUCTURAL_KEYS = new Set([
   'name', 'type', 'shapes', 'children', 'states', 'stateOverrides',
-  'animators',
-  'activeStates', 'visibleStates', 'var',
+  'visibleStates', 'var', 'anim',
 ]);
 
 /**
@@ -337,8 +329,8 @@ export function createStateProxy(shape, stateName) {
 export const SHAPE_ICONS = {
   group: '{}', path: '/', bezierPath: '~', quadPath: '~', arc: '(', circle: 'O',
   rect: '[]', strokeRect: '[]', lines: '=', repeat: '#', forEach: '*',
-  boltCluster: '::', spinner: '@', oscillator: '~', conditional: '?',
-  particles: '.:', roundedRect: '[R]', radialRepeat: '(*)',
+  boltCluster: '::', conditional: '?',
+  particles: '.:', roundedRect: '[R]', radialRepeat: '(*)', effectRef: '✦',
 };
 
-export const CONTAINER_TYPES = new Set(['group', 'spinner', 'oscillator', 'conditional', 'repeat', 'forEach', 'particles', 'radialRepeat']);
+export const CONTAINER_TYPES = new Set(['group', 'conditional', 'repeat', 'forEach', 'particles', 'radialRepeat']);

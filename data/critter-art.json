@@ -4,18 +4,25 @@
       "name": "Blob",
       "states": ["idle", "happy", "scared"],
       "setup": { "lineWidth": 2 },
+      "transitionDuration": 150,
+      "animations": {
+        "*": { "duration": 3142, "loop": true },
+        "happy": { "duration": 3142, "loop": true }
+      },
       "shapes": [
-        { "name": "Glow", "type": "group",
-          "animators": [
-            { "type": "oscillator", "var": "breathe", "rate": 0.002, "amplitude": 0.5, "base": 0.5 }
-          ],
-          "children": [
-            { "name": "glow", "type": "circle", "fill": true, "cx": 0, "cy": 0,
-              "radiusAbs": { "base": 18, "breathe": 6 },
-              "setup": { "alpha": { "base": 0.12, "breathe": 0.1 }, "shadowBlur": { "base": 8, "breathe": 8 } },
-              "states": { "happy": { "setup": { "alpha": { "base": 0.28, "breathe": 0.16 } } } }
+        { "name": "Glow", "type": "circle", "fill": true, "cx": 0, "cy": 0,
+          "radiusAbs": { "base": 18 },
+          "setup": { "alpha": 0.12, "shadowBlur": 8 },
+          "anim": {
+            "*": {
+              "radiusAbs": [ { "t": 0, "v": { "base": 18 } }, { "t": 1571, "v": { "base": 24 }, "ease": "easeInOutSine" }, { "t": 3142, "v": { "base": 18 }, "ease": "easeInOutSine" } ],
+              "setup.alpha": [ { "t": 0, "v": 0.12 }, { "t": 1571, "v": 0.22, "ease": "easeInOutSine" }, { "t": 3142, "v": 0.12, "ease": "easeInOutSine" } ],
+              "setup.shadowBlur": [ { "t": 0, "v": 8 }, { "t": 1571, "v": 16, "ease": "easeInOutSine" }, { "t": 3142, "v": 8, "ease": "easeInOutSine" } ]
+            },
+            "happy": {
+              "setup.alpha": [ { "t": 0, "v": 0.28 }, { "t": 1571, "v": 0.44, "ease": "easeInOutSine" }, { "t": 3142, "v": 0.28, "ease": "easeInOutSine" } ]
             }
-          ]
+          }
         },
         { "name": "Body", "type": "circle", "fill": true, "stroke": true, "cx": 0, "cy": 0, "radius": 0.72,
           "setup": { "shadowBlur": 4 },
@@ -35,11 +42,17 @@
           "setup": { "lineWidth": 2, "strokeColor": "#101820" },
           "points": [[-0.2, 0.24], [0, 0.32], [0.2, 0.24]],
           "states": { "scared": { "points": [[-0.2, 0.32], [0, 0.24], [0.2, 0.32]] } } },
-        { "name": "Sparkle", "type": "spinner", "visibleStates": ["happy"],
-          "cx": 0, "cy": 0, "rate": 0.02, "copies": 5,
+        { "name": "Sparkle", "type": "group", "visibleStates": ["happy"], "rotation": 0,
           "setup": { "strokeColor": "#fff7d8", "alpha": 0.9, "lineWidth": 1.5, "shadowBlur": 6 },
-          "shapes": [
-            { "name": "ray", "type": "lines", "stroke": true, "segments": [ [[0, -0.95], [0, -1.15]] ] }
+          "anim": {
+            "happy": { "rotation": [ { "t": 0, "v": 0 }, { "t": 3142, "v": 62.831853, "ease": "linear" } ] }
+          },
+          "children": [
+            { "type": "radialRepeat", "count": 5, "cx": 0, "cy": 0, "radius": 0,
+              "children": [
+                { "name": "ray", "type": "lines", "stroke": true, "segments": [ [[0, -0.95], [0, -1.15]] ] }
+              ]
+            }
           ]
         }
       ]
@@ -49,18 +62,25 @@
       "name": "Sprout",
       "states": ["idle", "happy", "scared"],
       "setup": { "lineWidth": 2 },
+      "transitionDuration": 150,
+      "animations": {
+        "*": { "duration": 2513, "loop": true },
+        "happy": { "duration": 2513, "loop": true }
+      },
       "shapes": [
-        { "name": "Glow", "type": "group",
-          "animators": [
-            { "type": "oscillator", "var": "breathe", "rate": 0.0025, "amplitude": 0.5, "base": 0.5 }
-          ],
-          "children": [
-            { "name": "glow", "type": "circle", "fill": true, "cx": 0, "cy": 0.1,
-              "radiusAbs": { "base": 15, "breathe": 5 },
-              "setup": { "alpha": { "base": 0.12, "breathe": 0.1 }, "shadowBlur": { "base": 6, "breathe": 8 } },
-              "states": { "happy": { "setup": { "alpha": { "base": 0.26, "breathe": 0.16 } } } }
+        { "name": "Glow", "type": "circle", "fill": true, "cx": 0, "cy": 0.1,
+          "radiusAbs": { "base": 15 },
+          "setup": { "alpha": 0.12, "shadowBlur": 6 },
+          "anim": {
+            "*": {
+              "radiusAbs": [ { "t": 0, "v": { "base": 15 } }, { "t": 1256, "v": { "base": 20 }, "ease": "easeInOutSine" }, { "t": 2513, "v": { "base": 15 }, "ease": "easeInOutSine" } ],
+              "setup.alpha": [ { "t": 0, "v": 0.12 }, { "t": 1256, "v": 0.22, "ease": "easeInOutSine" }, { "t": 2513, "v": 0.12, "ease": "easeInOutSine" } ],
+              "setup.shadowBlur": [ { "t": 0, "v": 6 }, { "t": 1256, "v": 14, "ease": "easeInOutSine" }, { "t": 2513, "v": 6, "ease": "easeInOutSine" } ]
+            },
+            "happy": {
+              "setup.alpha": [ { "t": 0, "v": 0.26 }, { "t": 1256, "v": 0.42, "ease": "easeInOutSine" }, { "t": 2513, "v": 0.26, "ease": "easeInOutSine" } ]
             }
-          ]
+          }
         },
         { "name": "Body", "type": "path", "fill": true, "stroke": true, "closed": true,
           "setup": { "shadowBlur": 4 },
@@ -70,28 +90,113 @@
             "scared": { "setup": { "shadowBlur": 1 } }
           }
         },
-        { "name": "Leaf", "type": "group",
-          "animators": [
-            { "type": "oscillator", "var": "sway", "rate": 0.003, "amplitude": 0.5, "base": 0.5 }
-          ],
-          "children": [
-            { "name": "stem", "type": "lines", "stroke": true,
-              "setup": { "lineWidth": 2, "strokeColor": "#6a8f5a" },
-              "segments": [ [[0, -0.45], [0, -0.75]] ] },
-            { "name": "leafblade", "type": "circle", "fill": true,
-              "cx": { "base": 0, "sway": 0.12 }, "cy": -0.82, "radiusAbs": { "base": 5, "sway": 1 },
-              "setup": { "fillColor": "#8fc070", "alpha": 0.9 } }
-          ]
+        { "name": "stem", "type": "lines", "stroke": true,
+          "setup": { "lineWidth": 2, "strokeColor": "#6a8f5a" },
+          "segments": [ [[0, -0.45], [0, -0.75]] ] },
+        { "name": "Leaf", "type": "circle", "fill": true,
+          "cx": 0, "cy": -0.82, "radiusAbs": { "base": 5 },
+          "setup": { "fillColor": "#8fc070", "alpha": 0.9 },
+          "anim": {
+            "*": {
+              "cx": [ { "t": 0, "v": 0 }, { "t": 1256, "v": 0.12, "ease": "easeInOutSine" }, { "t": 2513, "v": 0, "ease": "easeInOutSine" } ],
+              "radiusAbs": [ { "t": 0, "v": { "base": 5 } }, { "t": 1256, "v": { "base": 6 }, "ease": "easeInOutSine" }, { "t": 2513, "v": { "base": 5 }, "ease": "easeInOutSine" } ]
+            }
+          }
         },
         { "name": "Eye L", "type": "circle", "fill": true, "cx": -0.2, "cy": 0.18, "radiusAbs": 2.5,
           "setup": { "fillColor": "#101820" } },
         { "name": "Eye R", "type": "circle", "fill": true, "cx": 0.2, "cy": 0.18, "radiusAbs": 2.5,
           "setup": { "fillColor": "#101820" } },
-        { "name": "Sparkle", "type": "spinner", "visibleStates": ["happy"],
-          "cx": 0, "cy": 0, "rate": -0.018, "copies": 4,
+        { "name": "Sparkle", "type": "group", "visibleStates": ["happy"], "rotation": 0,
           "setup": { "strokeColor": "#fff7d8", "alpha": 0.9, "lineWidth": 1.5, "shadowBlur": 6 },
-          "shapes": [
-            { "name": "ray", "type": "lines", "stroke": true, "segments": [ [[0, -0.9], [0, -1.1]] ] }
+          "anim": {
+            "happy": { "rotation": [ { "t": 0, "v": 0 }, { "t": 2513, "v": -43.982, "ease": "linear" } ] }
+          },
+          "children": [
+            { "type": "radialRepeat", "count": 4, "cx": 0, "cy": 0, "radius": 0,
+              "children": [
+                { "name": "ray", "type": "lines", "stroke": true, "segments": [ [[0, -0.9], [0, -1.1]] ] }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+
+    "beetle": {
+      "name": "Beetle",
+      "states": ["idle", "happy", "scared"],
+      "setup": { "lineWidth": 2 },
+      "transitionDuration": 140,
+      "animations": {
+        "*": { "duration": 1800, "loop": true },
+        "happy": { "duration": 640, "loop": false },
+        "scared": { "duration": 760, "loop": false }
+      },
+      "shapes": [
+        { "name": "Glow", "type": "circle", "fill": true, "cx": 0, "cy": 0.06,
+          "radiusAbs": { "base": 16 },
+          "setup": { "fillColor": "#9fe0b0", "alpha": 0.12, "shadowBlur": 10 },
+          "anim": {
+            "*": {
+              "radiusAbs": [ { "t": 0, "v": { "base": 16 } }, { "t": 900, "v": { "base": 21 }, "ease": "easeInOutSine" }, { "t": 1800, "v": { "base": 16 }, "ease": "easeInOutSine" } ],
+              "setup.alpha": [ { "t": 0, "v": 0.12 }, { "t": 900, "v": 0.2, "ease": "easeInOutSine" }, { "t": 1800, "v": 0.12, "ease": "easeInOutSine" } ]
+            },
+            "happy": {
+              "setup.alpha": [ { "t": 0, "v": 0.5 }, { "t": 120, "v": 0.85, "ease": "easeOutQuad" }, { "t": 640, "v": 0.3, "ease": "easeInOutSine" } ]
+            },
+            "scared": {
+              "setup.alpha": [ { "t": 0, "v": 0.12 }, { "t": 220, "v": 0.05, "ease": "easeOutQuad" } ]
+            }
+          }
+        },
+        { "name": "Body", "type": "group", "cx": 0, "cy": 0, "rotation": 0,
+          "anim": {
+            "*": {
+              "cy": [ { "t": 0, "v": 0 }, { "t": 900, "v": -0.06, "ease": "easeInOutSine" }, { "t": 1800, "v": 0, "ease": "easeInOutSine" } ]
+            },
+            "happy": {
+              "cy": [ { "t": 0, "v": 0 }, { "t": 160, "v": -0.34, "ease": "easeOutQuad" }, { "t": 380, "v": 0.05, "ease": "easeInQuad" }, { "t": 520, "v": -0.04, "ease": "easeOutQuad" }, { "t": 640, "v": 0, "ease": "easeInOutSine" } ],
+              "rotation": [ { "t": 0, "v": 0 }, { "t": 180, "v": 0.2, "ease": "easeOutQuad" }, { "t": 420, "v": -0.14, "ease": "easeInOutSine" }, { "t": 640, "v": 0, "ease": "easeInOutSine" } ]
+            },
+            "scared": {
+              "cy": [ { "t": 0, "v": 0 }, { "t": 140, "v": 0.14, "ease": "easeOutQuad" }, { "t": 760, "v": 0.08, "ease": "easeInOutSine" } ],
+              "rotation": [ { "t": 0, "v": 0 }, { "t": 90, "v": -0.12, "ease": "easeOutQuad" }, { "t": 210, "v": 0.12 }, { "t": 330, "v": -0.07 }, { "t": 470, "v": 0.03 }, { "t": 760, "v": 0, "ease": "easeInOutSine" } ]
+            }
+          },
+          "children": [
+            { "name": "Shell", "type": "circle", "fill": true, "stroke": true, "cx": 0, "cy": 0.12, "radius": 0.62,
+              "setup": { "fillColor": "#6a9f5a", "strokeColor": "#3a5f3a", "shadowBlur": 4 },
+              "anim": {
+                "*": { "setup.fillColor": [ { "t": 0, "v": "#6a9f5a" }, { "t": 900, "v": "#7ab86a", "ease": "easeInOutSine" }, { "t": 1800, "v": "#6a9f5a", "ease": "easeInOutSine" } ] },
+                "scared": { "setup.fillColor": [ { "t": 0, "v": "#6a9f5a" }, { "t": 260, "v": "#9aae90", "ease": "easeOutQuad" } ] }
+              }
+            },
+            { "name": "Seam", "type": "lines", "stroke": true,
+              "setup": { "strokeColor": "#2f4f2f", "lineWidth": 2 },
+              "segments": [ [[0, -0.42], [0, 0.7]] ] },
+            { "name": "Spot L", "type": "circle", "fill": true, "cx": -0.28, "cy": 0.06, "radiusAbs": 3, "setup": { "fillColor": "#3a5f3a" } },
+            { "name": "Spot R", "type": "circle", "fill": true, "cx": 0.28, "cy": 0.06, "radiusAbs": 3, "setup": { "fillColor": "#3a5f3a" } },
+            { "name": "Head", "type": "circle", "fill": true, "cx": 0, "cy": -0.5, "radiusAbs": 9, "setup": { "fillColor": "#4f7f4f", "shadowBlur": 2 } },
+            { "name": "Eye L", "type": "circle", "fill": true, "cx": -0.12, "cy": -0.52, "radiusAbs": 2.4, "setup": { "fillColor": "#101820" } },
+            { "name": "Eye R", "type": "circle", "fill": true, "cx": 0.12, "cy": -0.52, "radiusAbs": 2.4, "setup": { "fillColor": "#101820" } },
+            { "name": "Antenna L", "type": "group", "cx": -0.06, "cy": -0.62, "rotation": 0,
+              "anim": { "*": { "rotation": [ { "t": 0, "v": 0.05 }, { "t": 900, "v": 0.26, "ease": "easeInOutSine" }, { "t": 1800, "v": 0.05, "ease": "easeInOutSine" } ] } },
+              "children": [
+                { "name": "stalk", "type": "lines", "stroke": true, "setup": { "strokeColor": "#2f4f2f", "lineWidth": 1.5 }, "segments": [ [[0, 0], [-0.16, -0.4]] ] },
+                { "name": "tip", "type": "circle", "fill": true, "cx": -0.16, "cy": -0.4, "radiusAbs": 2.4, "setup": { "fillColor": "#cad27a", "shadowBlur": 3 } }
+              ]
+            },
+            { "name": "Antenna R", "type": "group", "cx": 0.06, "cy": -0.62, "rotation": 0,
+              "anim": { "*": { "rotation": [ { "t": 0, "v": -0.05 }, { "t": 900, "v": -0.26, "ease": "easeInOutSine" }, { "t": 1800, "v": -0.05, "ease": "easeInOutSine" } ] } },
+              "children": [
+                { "name": "stalk", "type": "lines", "stroke": true, "setup": { "strokeColor": "#2f4f2f", "lineWidth": 1.5 }, "segments": [ [[0, 0], [0.16, -0.4]] ] },
+                { "name": "tip", "type": "circle", "fill": true, "cx": 0.16, "cy": -0.4, "radiusAbs": 2.4, "setup": { "fillColor": "#cad27a", "shadowBlur": 3 } }
+              ]
+            },
+            { "name": "Legs", "type": "lines", "stroke": true,
+              "setup": { "strokeColor": "#2f4f2f", "lineWidth": 2 },
+              "segments": [ [[-0.5, 0.1], [-0.86, 0.0]], [[-0.5, 0.34], [-0.86, 0.42]], [[0.5, 0.1], [0.86, 0.0]], [[0.5, 0.34], [0.86, 0.42]] ] }
           ]
         }
       ]

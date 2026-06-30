@@ -25,8 +25,7 @@ let saveManager = null;     // music.json
 
 let workingSongs = {};      // editable deep clone of MUSIC_SONGS
 let currentSongId = null;
-let playing = false;        // song loops exist
-let paused = false;         // audio context suspended (true pause — resumes in place)
+let playing = false;        // the one transport flag — mirrors MusicDirector.isPlaying()
 let playheadPhase = 0;      // editor-owned playhead position 0..1 (drives play start + the visual head)
 let seeking = false;        // true while scrubbing the ruler (freezes head tracking)
 let playBtns = [];          // every transport play/pause button (updated together)
@@ -107,9 +106,8 @@ function restoreState(s) {
 // ─── Playhead ──────────────────────────────────────────────────────────────
 function setPlayhead(ph, committed = true) {
   playheadPhase = Math.max(0, Math.min(0.9999, ph));
-  // Reposition the loops whenever the song is live — including while paused (suspended): the
-  // seek is timeline-relative, so it takes effect when the context resumes (otherwise resume
-  // would continue from the old pause position and the playhead would jump back).
+  // While playing, seek the live loops; while stopped/paused, just move the head — Play picks
+  // it up. (`committed` is false mid-drag so we only seek the audio on release.)
   if (committed) { seeking = false; if (playing) music.seekTo(playheadPhase); }
   else { seeking = true; }
   pianoRoll?.redraw();
@@ -159,40 +157,48 @@ function applyMix(secs = TWEAK_FADE) {
   for (const stem of song().stems) music.fadeStem(stem.name, targetGain(stem), secs);
 }
 
+// ─── Transport (one authoritative player: MusicDirector) ───────────────────
+// Play / pause / stop never touch the AudioContext's suspended state — the context stays
+// running so note auditioning works in every state. "Pause" tears the song's loops down (so
+// nothing keeps scheduling — no runaway) but keeps the playhead; Play restarts from it.
+
 async function play() {
-  if (!currentSongId) return;
-  soundManager.resume();
+  if (!currentSongId || playing) return;
+  soundManager.resume();           // ensure the context is running (no-op after the first time)
   await loadPromise;
-  music.startSong(song(), { intensity: activeTier || undefined, fadeSeconds: 0.5 });
-  playing = true; paused = false; seeking = false;
+  if (!music.startSong(song(), { intensity: activeTier || undefined, fadeSeconds: 0.4 })) return; // empty song / no ctx
+  playing = true; seeking = false;
   if (playheadPhase > 0.0005) music.seekTo(playheadPhase); // start from the playhead, not the top
-  applyMix(0.5); // honor any mute/solo
+  applyMix(0.4); // honor any mute/solo
   pianoRoll?.setPlaying(true);
-  buildUI();
-}
-
-function stop() {
-  const p = music.getPhase(); if (p != null) playheadPhase = p; // keep the playhead where playback was
-  music.stop({ fadeOut: 0.4 });
-  playing = false; paused = false;
-  pianoRoll?.setPlaying(false);
-  buildUI();
-}
-
-/** Transport toggle (button + Space): play from top → pause (suspend, resumes in place) → resume. */
-function toggleTransport() {
-  if (!currentSongId) return;
-  if (!playing) { play(); return; }
-  const ctx = soundManager?.ctx;
-  if (!ctx) return;
-  if (paused) { ctx.resume?.(); paused = false; }
-  else { ctx.suspend?.(); paused = true; }
   updateTransportBtn();
 }
 
+/** Pause: stop the song but keep the playhead, so Play resumes from the same spot. */
+function pause() {
+  if (!playing) return;
+  const p = music.getPhase(); if (p != null) playheadPhase = p;
+  music.stop({ fadeOut: 0.12 });
+  playing = false;
+  pianoRoll?.setPlaying(false); pianoRoll?.redraw();
+  updateTransportBtn();
+}
+
+/** Stop: stop the song and rewind the playhead to the start. */
+function stop() {
+  music.stop({ fadeOut: 0.15 });
+  playing = false; playheadPhase = 0;
+  pianoRoll?.setPlaying(false); pianoRoll?.redraw();
+  updateTransportBtn();
+}
+
+function toggleTransport() {
+  if (!currentSongId) return;
+  if (playing) pause(); else play();
+}
+
 function updateTransportBtn() {
-  const label = !playing ? '▶' : paused ? '▶' : '❚❚';
-  for (const b of playBtns) { b.textContent = label; b.className = 'me-tbtn me-tplay' + (playing && !paused ? ' playing' : ''); }
+  for (const b of playBtns) { b.textContent = playing ? '❚❚' : '▶'; b.className = 'me-tbtn me-tplay' + (playing ? ' playing' : ''); }
 }
 
 function setScene(tier) {
@@ -205,6 +211,7 @@ function setScene(tier) {
 function resyncIfPlaying() {
   if (!playing) return;
   music.startSong(song(), { intensity: activeTier || undefined, fadeSeconds: 0.3 });
+  if (playheadPhase > 0.0005) music.seekTo(playheadPhase); // keep the playhead through the restart
   applyMix(0.3);
 }
 
@@ -251,7 +258,6 @@ function selectStem(stem) {
 
 /** Audition a pitch through the selected stem's instrument (piano-key click in the roll). */
 function previewNote(midi) {
-  if (paused) return; // auditioning resumes the audio context — don't un-pause a paused song
   const snd = selectedStem && SOUND_CONFIG[selectedStem.sound];
   if (snd?.synth) soundManager.playSynthNote(snd.synth, midi, { category: snd.category });
 }
@@ -643,7 +649,7 @@ function buildPianoRollPanel() {
 // The playhead the piano roll draws: the live audio position while playing, else the
 // editor's own playhead (so you can move it while stopped). Tracks the audio into playheadPhase.
 function getPhase() {
-  if (!seeking && playing && !paused) { const p = music.getPhase(); if (p != null) playheadPhase = p; }
+  if (!seeking && playing) { const p = music.getPhase(); if (p != null) playheadPhase = p; }
   return playheadPhase;
 }
 

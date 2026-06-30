@@ -1,17 +1,28 @@
 // Preview rendering and controls for the art editor.
 // Handles the preview canvas, shape highlighting, and control bar.
 
-import { drawUnifiedArt } from '/engine/render/ArtInterpreter.js';
+import { drawUnifiedArt, setEffectResolver } from '/engine/render/ArtInterpreter.js';
+import { VFX_DEFS } from '/engine/data/vfx.js';
 import { ctx, getShapeAtPath, CONTAINER_TYPES } from './artEditorCtx.js';
+
+// Let `effectRef` shapes resolve to VFX effects by id in the preview.
+setEffectResolver((id) => VFX_DEFS[id]);
 import { Select, NumberSlider, Toggle, Button } from './editorShared.js';
 import { getManifest } from './editorManifest.js';
+import { addCoordDelta, addPointDelta } from './artCoordModel.js';
 
 // ─── Animation Loop ──────────────────────────────────────────────────────────
 
 export function startAnimation() {
   ctx.animPlaying = true;
+  let last = performance.now();
   const tick = () => {
-    ctx.animNow = performance.now();
+    const t = performance.now();
+    const dt = t - last; last = t;
+    ctx.animNow = t;
+    // Advance the keyframe playhead (loop / hold-at-end). Frozen during a handle
+    // drag so a grabbed keyframed shape doesn't animate out from under the cursor.
+    if (ctx.timeline && ctx.frozenNow == null) ctx.timeline.advance(dt);
     renderPreview();
     ctx.animFrame = requestAnimationFrame(tick);
   };
@@ -80,6 +91,27 @@ export function buildControls() {
   }, 'subtle');
   ctx.controlsEl.appendChild(resetBtn.el);
 
+  const fitBtn = Button('Fit', () => {
+    const r = ctx.previewRadius;
+    const w = ctx.currentArt.space ? r * (ctx.currentArt.space.widthFactor || 1) : r;
+    const h = ctx.currentArt.space ? r * (ctx.currentArt.space.heightFactor || 1) : r;
+    const b = getAssetBounds({ r, w, h });
+    ctx.preview.resetView();
+    if (b && b.w > 0 && b.h > 0) {
+      const cw = ctx.preview.canvas.clientWidth || ctx.preview.canvas.width;
+      const ch = ctx.preview.canvas.clientHeight || ctx.preview.canvas.height;
+      const fit = Math.min(cw / b.w, ch / b.h) * 0.8;
+      ctx.preview.setZoom(Math.max(0.2, Math.min(20, fit)));
+    } else {
+      ctx.preview.setZoom(1);
+    }
+  }, 'subtle');
+  fitBtn.el.title = 'Fit the asset to the viewport';
+  ctx.controlsEl.appendChild(fitBtn.el);
+
+  const snapToggle = Toggle('Snap', !!ctx.snapGrid, v => { ctx.snapGrid = v; });
+  ctx.controlsEl.appendChild(snapToggle.el);
+
   addControlLabel(`Zoom: ${ctx.preview.getZoom().toFixed(1)}x`);
   ctx.preview.onZoom(() => {
     const zoomLabel = ctx.controlsEl.querySelector('.zoom-label');
@@ -108,7 +140,20 @@ export function renderPreview() {
 
   if (ctx.currentArt && ctx.currentArt.shapes) {
     canvasCtx.save();
-    drawUnifiedArt(canvasCtx, ctx.previewRadius, ctx.previewColor, ctx.currentArt, ctx.previewState, ctx.animPlaying ? ctx.animNow : 0, ctx.previewTransition);
+    const restoreVis = applyEditorVisibility(ctx.currentArt);
+    // While a handle/drag is active, freeze time so animated shapes stop moving
+    // under the cursor (otherwise the thing you're grabbing oscillates away).
+    const now = ctx.frozenNow != null ? ctx.frozenNow : (ctx.animPlaying ? ctx.animNow : 0);
+    // Pin the key-target keyframe clip to the timeline playhead so the preview shows
+    // exactly the scrubbed frame; other composited clips free-run on `now`.
+    const kc = ctx.keyTargetClip;
+    ctx.previewTransition.animTime = (kc && ctx.currentArt.animations && ctx.currentArt.animations[kc])
+      ? { [kc]: ctx.playhead || 0 } : null;
+    try {
+      drawUnifiedArt(canvasCtx, ctx.previewRadius, ctx.previewColor, ctx.currentArt, ctx.previewState, now, ctx.previewTransition);
+    } finally {
+      if (restoreVis) restoreVis();
+    }
     canvasCtx.restore();
 
     const r = ctx.previewRadius;
@@ -129,6 +174,47 @@ export function renderPreview() {
   canvasCtx.setTransform(1, 0, 0, 1, 0, 0);
   canvasCtx.globalAlpha = 1;
   canvasCtx.shadowBlur = 0;
+}
+
+const EDITOR_HIDDEN_STATE = '__editorHidden__';
+
+/**
+ * Apply editor-only hide / solo to the art for one draw by temporarily setting
+ * the affected shapes' `visibleStates` to a state that is never active, then
+ * restoring them. Keeps the interpreter untouched (no editor concept leaks into
+ * the engine) and never mutates persisted data. Returns a restore fn, or null.
+ */
+function applyEditorVisibility(art) {
+  const hidden = ctx.editorHidden;
+  const solo = ctx.editorSolo;
+  if ((!hidden || !hidden.size) && !solo) return null;
+
+  const saved = [];
+  const hideShape = (shape) => {
+    saved.push([shape, Object.prototype.hasOwnProperty.call(shape, 'visibleStates') ? shape.visibleStates : undefined]);
+    shape.visibleStates = [EDITOR_HIDDEN_STATE];
+  };
+  const walk = (shapes, base) => {
+    shapes.forEach((shape, i) => {
+      const key = [...base, i].join(',');
+      let hide = hidden && hidden.has(key);
+      if (solo) {
+        const onBranch = key === solo || key.startsWith(solo + ',') || solo.startsWith(key + ',');
+        if (!onBranch) hide = true;
+      }
+      if (hide) { hideShape(shape); return; } // whole subtree goes with it
+      const children = shape.shapes || shape.children;
+      if (children) walk(children, [...base, i]);
+    });
+  };
+  walk(art.shapes, []);
+
+  return () => {
+    for (const [shape, orig] of saved) {
+      if (orig === undefined) delete shape.visibleStates;
+      else shape.visibleStates = orig;
+    }
+  };
 }
 
 // ─── Shape Bounds & Highlighting ─────────────────────────────────────────────
@@ -338,7 +424,7 @@ function getShapeAnchor(rawShape, dc) {
       return { x: rx + rw / 2, y: ry + rh / 2 };
     }
     default: {
-      // Containers (group, spinner, etc.) use cx/cy as their origin
+      // Containers (group, radialRepeat, etc.) use cx/cy as their origin
       if (shape.cx !== undefined || shape.cy !== undefined) {
         return {
           x: resolveCoordSimple(shape.cx ?? 0, dc),
@@ -395,6 +481,32 @@ function getHandleGeometry(shape, dc) {
   const rot = getShapeRotation(shape);
 
   return { anchor, ringR, handleR, rot };
+}
+
+/** Editable vertices / control-points of a shape, in world coords, with setters. */
+function getEditablePoints(shape, dc) {
+  const pts = [];
+  const add = (container, key) => {
+    if (container[key] == null) return;
+    const [wx, wy] = resolvePointSimple(container[key], dc);
+    pts.push({ wx, wy, get: () => container[key], set: (np) => { container[key] = np; } });
+  };
+  if (shape.type === 'path' && shape.points) shape.points.forEach((_, i) => add(shape.points, i));
+  else if (shape.type === 'lines' && shape.segments) shape.segments.forEach(seg => seg.forEach((_, i) => add(seg, i)));
+  else if (shape.type === 'bezierPath') { if (shape.start) add(shape, 'start'); (shape.curves || []).forEach(c => ['cp1', 'cp2', 'to'].forEach(k => c[k] && add(c, k))); }
+  else if (shape.type === 'quadPath') { if (shape.start) add(shape, 'start'); (shape.curves || []).forEach(c => ['cp', 'to'].forEach(k => c[k] && add(c, k))); }
+  return pts;
+}
+
+/** The drag handle for a circle's radius (world coords), or null. */
+function getRadiusHandle(shape, dc) {
+  if (shape.type !== 'circle') return null;
+  const cx = resolveCoordSimple(shape.cx, dc);
+  const cy = resolveCoordSimple(shape.cy, dc);
+  const rad = shape.radiusAbs !== undefined
+    ? (typeof shape.radiusAbs === 'object' ? (shape.radiusAbs.base || 0) : shape.radiusAbs)
+    : (shape.radius || 0.1) * dc.r;
+  return { x: cx + rad, y: cy, cx, cy };
 }
 
 function drawShapeHighlight(canvasCtx, dc, shape, style) {
@@ -470,11 +582,44 @@ function drawShapeHighlight(canvasCtx, dc, shape, style) {
   canvasCtx.lineWidth = 1 / z;
   canvasCtx.stroke();
   canvasCtx.restore();
+
+  // Vertex / control-point handles (path/lines/bezier/quad)
+  for (const v of getEditablePoints(shape, dc)) {
+    canvasCtx.save();
+    canvasCtx.beginPath();
+    canvasCtx.arc(v.wx, v.wy, hg.handleR * 0.85, 0, Math.PI * 2);
+    canvasCtx.fillStyle = '#ffaa44';
+    canvasCtx.globalAlpha = 0.9;
+    canvasCtx.fill();
+    canvasCtx.strokeStyle = '#fff';
+    canvasCtx.lineWidth = 1 / z;
+    canvasCtx.stroke();
+    canvasCtx.restore();
+  }
+
+  // Radius handle (circle)
+  const rh = getRadiusHandle(shape, dc);
+  if (rh) {
+    canvasCtx.save();
+    canvasCtx.beginPath();
+    canvasCtx.arc(rh.x, rh.y, hg.handleR, 0, Math.PI * 2);
+    canvasCtx.fillStyle = '#aa88ff';
+    canvasCtx.globalAlpha = 0.9;
+    canvasCtx.fill();
+    canvasCtx.strokeStyle = '#fff';
+    canvasCtx.lineWidth = 1 / z;
+    canvasCtx.stroke();
+    canvasCtx.restore();
+  }
 }
 
 /** Translate a shape's position by dx/dy in art-coordinate space (values / r). */
 function translateShape(shape, dx, dy) {
-  // Determine which object to write to — either the base shape or a state override
+  // Determine which object to write to — either the base shape or a state override.
+  // Coords are moved via addCoordDelta/addPointDelta, which PRESERVE object-valued
+  // coords ({ base, r, w, h, <animVar> }) instead of flattening them to a number —
+  // so dragging an animated/abstract coordinate shifts its rest position without
+  // discarding its base offset or animation terms.
   const eff = effectiveShape(shape);
 
   switch (shape.type) {
@@ -482,89 +627,67 @@ function translateShape(shape, dx, dy) {
     case 'arc':
     case 'boltCluster': {
       const t = writeTarget(shape, 'cx');
-      t.cx = round3(toNum(eff.cx) + dx);
-      t.cy = round3(toNum(eff.cy) + dy);
+      t.cx = addCoordDelta(eff.cx ?? 0, dx);
+      t.cy = addCoordDelta(eff.cy ?? 0, dy);
       break;
     }
     case 'rect': case 'strokeRect': {
       const t = writeTarget(shape, 'x');
-      t.x = round3(toNum(eff.x) + dx);
-      t.y = round3(toNum(eff.y) + dy);
+      t.x = addCoordDelta(eff.x ?? 0, dx);
+      t.y = addCoordDelta(eff.y ?? 0, dy);
       break;
     }
     case 'roundedRect': {
       const t = writeTarget(shape, 'x');
-      t.x = round3(toNum(eff.x) + dx);
-      t.y = round3(toNum(eff.y) + dy);
+      t.x = addCoordDelta(eff.x ?? 0, dx);
+      t.y = addCoordDelta(eff.y ?? 0, dy);
       break;
     }
     case 'path': {
       const t = writeTarget(shape, 'points');
       const pts = t.points || eff.points;
-      if (pts) {
-        for (let i = 0; i < pts.length; i++) {
-          const pt = pts[i];
-          if (Array.isArray(pt)) {
-            pts[i] = [round3(toNum(pt[0]) + dx), round3(toNum(pt[1]) + dy)];
-          }
-        }
-      }
+      if (pts) for (let i = 0; i < pts.length; i++) pts[i] = addPointDelta(pts[i], dx, dy);
       break;
     }
     case 'bezierPath': {
       const t = writeTarget(shape, 'start');
       const start = t.start || eff.start;
-      if (start && Array.isArray(start)) {
-        t.start = [round3(toNum(start[0]) + dx), round3(toNum(start[1]) + dy)];
-      }
+      if (start) t.start = addPointDelta(start, dx, dy);
       const curves = t.curves || eff.curves;
-      if (curves) {
-        for (const c of curves) {
-          if (c.cp1 && Array.isArray(c.cp1)) c.cp1 = [round3(toNum(c.cp1[0]) + dx), round3(toNum(c.cp1[1]) + dy)];
-          if (c.cp2 && Array.isArray(c.cp2)) c.cp2 = [round3(toNum(c.cp2[0]) + dx), round3(toNum(c.cp2[1]) + dy)];
-          if (c.to && Array.isArray(c.to)) c.to = [round3(toNum(c.to[0]) + dx), round3(toNum(c.to[1]) + dy)];
-        }
+      if (curves) for (const c of curves) {
+        if (c.cp1) c.cp1 = addPointDelta(c.cp1, dx, dy);
+        if (c.cp2) c.cp2 = addPointDelta(c.cp2, dx, dy);
+        if (c.to) c.to = addPointDelta(c.to, dx, dy);
       }
       break;
     }
     case 'quadPath': {
       const t = writeTarget(shape, 'start');
       const start = t.start || eff.start;
-      if (start && Array.isArray(start)) {
-        t.start = [round3(toNum(start[0]) + dx), round3(toNum(start[1]) + dy)];
-      }
+      if (start) t.start = addPointDelta(start, dx, dy);
       const curves = t.curves || eff.curves;
-      if (curves) {
-        for (const c of curves) {
-          if (c.cp && Array.isArray(c.cp)) c.cp = [round3(toNum(c.cp[0]) + dx), round3(toNum(c.cp[1]) + dy)];
-          if (c.to && Array.isArray(c.to)) c.to = [round3(toNum(c.to[0]) + dx), round3(toNum(c.to[1]) + dy)];
-        }
+      if (curves) for (const c of curves) {
+        if (c.cp) c.cp = addPointDelta(c.cp, dx, dy);
+        if (c.to) c.to = addPointDelta(c.to, dx, dy);
       }
       break;
     }
     case 'lines': {
       const t = writeTarget(shape, 'segments');
       const segs = t.segments || eff.segments;
-      if (segs) {
-        for (let s = 0; s < segs.length; s++) {
-          for (let p = 0; p < segs[s].length; p++) {
-            const pt = segs[s][p];
-            if (Array.isArray(pt)) {
-              segs[s][p] = [round3(toNum(pt[0]) + dx), round3(toNum(pt[1]) + dy)];
-            }
-          }
-        }
+      if (segs) for (let s = 0; s < segs.length; s++) {
+        for (let p = 0; p < segs[s].length; p++) segs[s][p] = addPointDelta(segs[s][p], dx, dy);
       }
       break;
     }
     default: {
-      // Containers (group, spinner, oscillator, etc.) — translate cx/cy
+      // Containers (group, radialRepeat, etc.) — translate cx/cy
       const t = writeTarget(shape, 'cx');
       if (eff.cx !== undefined || eff.cy !== undefined) {
-        t.cx = round3(toNum(eff.cx) + dx);
-        t.cy = round3(toNum(eff.cy) + dy);
+        t.cx = addCoordDelta(eff.cx ?? 0, dx);
+        t.cy = addCoordDelta(eff.cy ?? 0, dy);
       } else {
-        // Wrap in a translate offset if no position property exists
+        // No position property yet — seed a translate offset.
         t.cx = round3(dx);
         t.cy = round3(dy);
       }
@@ -575,6 +698,17 @@ function translateShape(shape, dx, dy) {
 
 function toNum(v) { return typeof v === 'number' ? v : 0; }
 function round3(v) { return Math.round(v * 1000) / 1000; }
+
+/** Nudge the selected shape by (dx, dy) art-units (used by arrow-key shortcuts). */
+export function nudgeSelectedShape(dx, dy) {
+  if (!ctx.currentArt || !ctx.selectedShapePath) return;
+  if (ctx.editorLocked && ctx.editorLocked.has(ctx.selectedShapePath.join(','))) return;
+  const shape = getShapeAtPath(ctx.currentArt.shapes, ctx.selectedShapePath);
+  if (!shape) return;
+  translateShape(shape, dx, dy);
+  ctx.markDirty();
+  ctx.rebuildProps();
+}
 
 /**
  * Rotate a shape to newRot, compensating cx/cy for groups so the visual center
@@ -606,6 +740,57 @@ export function rotateShapeAroundCenter(shape, newRot, dc) {
 }
 
 // ─── Preview Mouse Interaction ──────────────────────────────────────────────
+
+// ─── Shape picking (click-to-select) ────────────────────────────────────────
+
+/** The state whose visibility/overrides the preview is currently showing. */
+function activePreviewState() {
+  return ctx.currentEditState === 'BASE' ? ctx.previewState : ctx.currentEditState;
+}
+
+/** Whether a shape is rendered in the current state (mirrors the interpreter). */
+function shapeVisibleNow(shape) {
+  const vs = shape.visibleStates;
+  if (!vs || !vs.length) return true;
+  const st = activePreviewState();
+  return st != null && vs.includes(st);
+}
+
+/**
+ * Collect world-space bounds of every pickable leaf shape, in draw order, with
+ * accumulated parent (cx/cy) offsets. Editor-hidden shapes (A5) are skipped.
+ */
+function collectLeafBounds(shapes, basePath, dc, ox, oy, out) {
+  shapes.forEach((shape, i) => {
+    const path = [...basePath, i];
+    if (!shapeVisibleNow(shape)) return;
+    if (ctx.editorHidden && ctx.editorHidden.has(path.join(','))) return;
+    const eff = effectiveShape(shape);
+    const children = eff.shapes || eff.children;
+    if (children && children.length) {
+      const cox = ox + (eff.cx !== undefined ? resolveCoordSimple(eff.cx, dc) : 0);
+      const coy = oy + (eff.cy !== undefined ? resolveCoordSimple(eff.cy, dc) : 0);
+      collectLeafBounds(children, path, dc, cox, coy, out);
+    } else {
+      const b = getShapeBounds(shape, dc);
+      if (b) out.push({ path, bounds: { x: b.x + ox, y: b.y + oy, w: b.w, h: b.h } });
+    }
+  });
+}
+
+/** Union bounds of the whole asset in world px (for fit-to-view). */
+function getAssetBounds(dc) {
+  if (!ctx.currentArt?.shapes) return null;
+  const targets = [];
+  collectLeafBounds(ctx.currentArt.shapes, [], dc, 0, 0, targets);
+  if (!targets.length) return null;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const t of targets) {
+    minX = Math.min(minX, t.bounds.x); minY = Math.min(minY, t.bounds.y);
+    maxX = Math.max(maxX, t.bounds.x + t.bounds.w); maxY = Math.max(maxY, t.bounds.y + t.bounds.h);
+  }
+  return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+}
 
 let previewDrag = null;
 
@@ -640,6 +825,15 @@ export function setupPreviewInteraction() {
     const hg = getHandleGeometry(shape, dc);
     const z = ctx.preview.getZoom();
     const ringTol = 6 / z; // tolerance band around the ring
+    const ptTol = 8 / z;
+
+    // Vertex / control-point handles take priority (you're aiming at a dot).
+    for (const v of getEditablePoints(shape, dc)) {
+      if (Math.hypot(worldX - v.wx, worldY - v.wy) < ptTol) return { type: 'vertex', point: v };
+    }
+    // Circle radius handle.
+    const rh = getRadiusHandle(shape, dc);
+    if (rh && Math.hypot(worldX - rh.x, worldY - rh.y) < ptTol) return { type: 'radius' };
 
     // Hit test rotation ring (click anywhere near the ring circumference)
     const distFromAnchor = Math.hypot(worldX - hg.anchor.x, worldY - hg.anchor.y);
@@ -662,16 +856,47 @@ export function setupPreviewInteraction() {
     return null;
   }
 
+  /** Pick the top-most leaf shape under the cursor; returns its path or null. */
+  function pickShapeAt(worldX, worldY) {
+    if (!ctx.currentArt || !ctx.currentArt.shapes) return null;
+    const dc = getDc();
+    const targets = [];
+    collectLeafBounds(ctx.currentArt.shapes, [], dc, 0, 0, targets);
+    const pad = 4 / ctx.preview.getZoom();
+    for (let i = targets.length - 1; i >= 0; i--) { // last drawn = top-most
+      const b = targets[i].bounds;
+      if (worldX >= b.x - pad && worldX <= b.x + b.w + pad &&
+          worldY >= b.y - pad && worldY <= b.y + b.h + pad) {
+        return targets[i].path;
+      }
+    }
+    return null;
+  }
+
   canvas.addEventListener('mousedown', (e) => {
     if (e.button !== 0 || e.shiftKey) return;
 
     const world = eventToWorld(e);
     const hit = hitTestHandles(world.x, world.y);
     if (!hit) {
+      // No handle of the current selection — try to pick a shape under the cursor.
+      const picked = pickShapeAt(world.x, world.y);
+      if (picked) {
+        e.preventDefault();
+        e.stopPropagation();
+        ctx.selectedShapePath = picked;
+        ctx.rebuildTree();
+        ctx.rebuildProps();
+        // Start moving it in the same gesture (unless the shape is locked).
+        if (!(ctx.editorLocked && ctx.editorLocked.has(picked.join(',')))) {
+          previewDrag = { type: 'move', startWorld: world };
+        }
+        return;
+      }
       if (ctx.selectedShapePath) {
         ctx.selectedShapePath = null;
         ctx.rebuildTree();
-        ctx.clearProps();
+        ctx.rebuildProps();   // back to the asset-level panel
       }
       return;
     }
@@ -679,8 +904,15 @@ export function setupPreviewInteraction() {
     e.preventDefault();
     e.stopPropagation();
 
+    // A locked shape selects but won't transform.
+    if (ctx.editorLocked && ctx.selectedShapePath && ctx.editorLocked.has(ctx.selectedShapePath.join(','))) return;
+
     if (hit.type === 'move') {
       previewDrag = { type: 'move', startWorld: world };
+    } else if (hit.type === 'vertex') {
+      previewDrag = { type: 'vertex', point: hit.point, startWorld: world };
+    } else if (hit.type === 'radius') {
+      previewDrag = { type: 'radius' };
     } else if (hit.type === 'rotate') {
       const shape = getShapeAtPath(ctx.currentArt.shapes, ctx.selectedShapePath);
       if (!shape) return;
@@ -703,13 +935,41 @@ export function setupPreviewInteraction() {
       const shape = getShapeAtPath(ctx.currentArt.shapes, ctx.selectedShapePath);
       if (!shape) return;
 
+      // Freeze animation for the duration of the drag (grab a still target).
+      if (ctx.frozenNow == null) ctx.frozenNow = ctx.animPlaying ? ctx.animNow : 0;
+
       const r = ctx.previewRadius;
 
-      if (previewDrag.type === 'move') {
-        const dx = (world.x - previewDrag.startWorld.x) / r;
-        const dy = (world.y - previewDrag.startWorld.y) / r;
-        translateShape(shape, dx, dy);
-        previewDrag.startWorld = world;
+      if (previewDrag.type === 'move' || previewDrag.type === 'vertex') {
+        let dx = (world.x - previewDrag.startWorld.x) / r;
+        let dy = (world.y - previewDrag.startWorld.y) / r;
+        if (ctx.snapGrid) {
+          const G = 0.05;
+          dx = Math.round(dx / G) * G; dy = Math.round(dy / G) * G;
+          if (dx === 0 && dy === 0) return;
+          previewDrag.startWorld = { x: previewDrag.startWorld.x + dx * r, y: previewDrag.startWorld.y + dy * r };
+        } else {
+          previewDrag.startWorld = world;
+        }
+        if (previewDrag.type === 'move') {
+          translateShape(shape, dx, dy);
+        } else {
+          const p = previewDrag.point;
+          p.set(addPointDelta(p.get(), dx, dy));
+        }
+        ctx.markDirty();
+        ctx.rebuildProps();
+      } else if (previewDrag.type === 'radius') {
+        const dc = getDc();
+        const cx = resolveCoordSimple(shape.cx, dc);
+        const cy = resolveCoordSimple(shape.cy, dc);
+        const newRadPx = Math.max(0.5, Math.hypot(world.x - cx, world.y - cy));
+        if (shape.radiusAbs !== undefined) {
+          if (typeof shape.radiusAbs === 'object') shape.radiusAbs = { ...shape.radiusAbs, base: round3(newRadPx) };
+          else shape.radiusAbs = round3(newRadPx);
+        } else {
+          shape.radius = round3(newRadPx / r);
+        }
         ctx.markDirty();
         ctx.rebuildProps();
       } else if (previewDrag.type === 'rotate') {
@@ -722,12 +982,15 @@ export function setupPreviewInteraction() {
     } else {
       // Cursor feedback
       const hit = hitTestHandles(world.x, world.y);
-      canvas.style.cursor = hit ? (hit.type === 'rotate' ? 'crosshair' : 'grab') : '';
+      canvas.style.cursor = hit
+        ? (hit.type === 'rotate' ? 'crosshair' : (hit.type === 'vertex' || hit.type === 'radius' ? 'pointer' : 'grab'))
+        : '';
     }
   });
 
   const stopDrag = () => {
     previewDrag = null;
+    ctx.frozenNow = null;   // resume live animation
     canvas.style.cursor = '';
   };
   canvas.addEventListener('mouseup', stopDrag);

@@ -2,7 +2,7 @@
 // Builds the sidebar shape tree and handles add/delete/move/wrap/unwrap.
 
 import { ctx, pathToKey, getShapeAtPath, getParentShapesAtPath, shapeHasStateRef, SHAPE_ICONS, CONTAINER_TYPES } from './artEditorCtx.js';
-import { Button } from './editorShared.js';
+import { Button, modalPrompt, modalConfirm } from './editorShared.js';
 
 // ─── Drag State ─────────────────────────────────────────────────────────────
 
@@ -155,6 +155,35 @@ export function buildSidebarShapeTree() {
       node.appendChild(dot);
     }
 
+    // Editor-only view toggles: Hide / Solo / Lock.
+    const key = pathToKey(path);
+    const hidden = ctx.editorHidden.has(key);
+    const locked = ctx.editorLocked.has(key);
+    const soloed = ctx.editorSolo === key;
+    if (hidden) { nameEl.style.opacity = '0.4'; nameEl.style.textDecoration = 'line-through'; }
+    if (locked) nameEl.style.fontStyle = 'italic';
+
+    const toggles = document.createElement('span');
+    toggles.style.cssText = 'margin-left:auto;display:flex;gap:4px;flex-shrink:0;padding-left:6px;';
+    const mkToggle = (glyph, on, color, title, onClick) => {
+      const b = document.createElement('span');
+      b.textContent = glyph;
+      b.title = title;
+      b.style.cssText = `cursor:pointer;font-size:10px;line-height:1;color:${on ? color : '#4a4030'};`;
+      b.addEventListener('click', (e) => { e.stopPropagation(); onClick(); rebuildTreeNodes(searchInput.value.toLowerCase()); });
+      return b;
+    };
+    toggles.appendChild(mkToggle('H', hidden, '#d4a056', 'Hide in preview', () => {
+      if (ctx.editorHidden.has(key)) ctx.editorHidden.delete(key); else ctx.editorHidden.add(key);
+    }));
+    toggles.appendChild(mkToggle('S', soloed, '#33ddcc', 'Solo (show only this)', () => {
+      ctx.editorSolo = soloed ? null : key;
+    }));
+    toggles.appendChild(mkToggle('L', locked, '#cc6644', 'Lock (prevent edits)', () => {
+      if (ctx.editorLocked.has(key)) ctx.editorLocked.delete(key); else ctx.editorLocked.add(key);
+    }));
+    node.appendChild(toggles);
+
     node.addEventListener('click', () => {
       if (dragState && dragState.active) return;
       ctx.selectedShapePath = [...path];
@@ -215,9 +244,9 @@ function showShapeContextMenu(x, y, path, shape) {
   const renameItem = document.createElement('div');
   renameItem.className = 'editor-context-menu-item';
   renameItem.textContent = 'Rename';
-  renameItem.addEventListener('click', () => {
+  renameItem.addEventListener('click', async () => {
     menu.remove();
-    const newName = prompt('Rename shape:', shape.name || shape.type);
+    const newName = await modalPrompt('Rename shape:', { title: 'Rename shape', value: shape.name || shape.type, confirmLabel: 'Rename' });
     if (newName !== null && newName !== shape.name) {
       shape.name = newName;
       ctx.markDirty();
@@ -433,13 +462,14 @@ function showAddShapeDialog() {
     path: { name: 'newPath', type: 'path', points: [[0, 0], [0.5, 0]], stroke: true },
     circle: { name: 'newCircle', type: 'circle', cx: 0, cy: 0, radius: 0.2, fill: true },
     lines: { name: 'newLines', type: 'lines', segments: [[[0, 0], [0.3, 0]]], stroke: true },
-    spinner: { name: 'newSpinner', type: 'spinner', cx: 0, cy: 0, rate: 0.01, copies: 4, shapes: [{ name: 'blade', type: 'lines', segments: [[[0, 0], [0.3, 0]]], stroke: true }] },
-    oscillator: { name: 'newOscillator', type: 'oscillator', var: 'v', rate: 0.003, amplitude: 0.4, phase: 0, activeStates: [], defaultValue: 0, shapes: [] },
     conditional: { name: 'newConditional', type: 'conditional', visibleStates: [], shapes: [] },
     radialRepeat: { name: 'newRadialRepeat', type: 'radialRepeat', cx: 0, cy: 0, count: 6, shapes: [{ name: 'child', type: 'circle', cx: { r: 0.5 }, cy: 0, radius: 0.1, fill: true }] },
+    effectRef: { name: 'newEffect', type: 'effectRef', effect: '', cx: 0, cy: 0, scale: 1 },
   };
 
-  const types = ['circle', 'path', 'lines', 'arc', 'rect', 'roundedRect', 'spinner', 'oscillator', 'conditional', 'particles', 'repeat', 'forEach', 'radialRepeat', 'boltCluster'];
+  // `particles` is deprecated — author particle clouds in the VFX tab and embed
+  // them via `effectRef`. Existing particles still render and remain editable.
+  const types = ['circle', 'path', 'lines', 'arc', 'rect', 'roundedRect', 'effectRef', 'conditional', 'repeat', 'forEach', 'radialRepeat', 'boltCluster'];
 
   const treeScroll = document.querySelector('.shape-tree-scroll');
   if (!treeScroll) return;
@@ -647,11 +677,6 @@ function mirrorShapeRecursive(shape, axis) {
         else if (typeof shape.rotation === 'string') shape.rotation = `-(${shape.rotation})`;
       }
       break;
-
-    case 'spinner':
-      // cx/cy already handled; reverse spin direction
-      if (shape.rate !== undefined) shape.rate = -shape.rate;
-      break;
   }
 
   // Recurse into children for container types
@@ -700,7 +725,7 @@ export function mirrorSelectedShape(axis) {
   ctx.rebuildProps();
 }
 
-export function deleteSelectedShape() {
+export async function deleteSelectedShape() {
   if (!ctx.selectedShapePath || ctx.selectedShapePath.length === 0) return;
   const art = ctx.currentArt;
   if (!art) return;
@@ -709,12 +734,42 @@ export function deleteSelectedShape() {
   const idx = ctx.selectedShapePath[ctx.selectedShapePath.length - 1];
   const shape = parentShapes[idx];
   const childCount = shape.shapes ? shape.shapes.length : 0;
-  if (childCount > 0 && !confirm(`Delete "${shape.name || shape.type}" and its ${childCount} children?`)) return;
+  if (childCount > 0 && !(await modalConfirm(`Delete "${shape.name || shape.type}" and its ${childCount} children?`, { title: 'Delete shape', confirmLabel: 'Delete', danger: true }))) return;
   parentShapes.splice(idx, 1);
   ctx.selectedShapePath = null;
   ctx.markDirty();
   buildSidebarShapeTree();
-  ctx.clearProps();
+  ctx.rebuildProps();
+}
+
+/** Copy the selected shape to the clipboard (deep clone — pasteable into any asset). */
+export function copySelectedShape() {
+  if (!ctx.selectedShapePath || !ctx.currentArt) return;
+  const shape = getShapeAtPath(ctx.currentArt.shapes, ctx.selectedShapePath);
+  if (shape) ctx.clipboard = JSON.parse(JSON.stringify(shape));
+}
+
+/** Paste the clipboard shape as a sibling after the selection (or at the asset root). */
+export function pasteShape() {
+  if (!ctx.clipboard || !ctx.currentArt) return;
+  const clone = JSON.parse(JSON.stringify(ctx.clipboard));
+  if (clone.name) clone.name += ' copy';
+  let parentShapes, insertIdx, basePath;
+  if (ctx.selectedShapePath && ctx.selectedShapePath.length) {
+    parentShapes = getParentShapesAtPath(ctx.currentArt, ctx.selectedShapePath);
+    insertIdx = ctx.selectedShapePath[ctx.selectedShapePath.length - 1] + 1;
+    basePath = ctx.selectedShapePath.slice(0, -1);
+  } else {
+    parentShapes = ctx.currentArt.shapes;
+    insertIdx = parentShapes.length;
+    basePath = [];
+  }
+  if (!parentShapes) return;
+  parentShapes.splice(insertIdx, 0, clone);
+  ctx.selectedShapePath = [...basePath, insertIdx];
+  ctx.markDirty();
+  buildSidebarShapeTree();
+  ctx.rebuildProps();
 }
 
 export function moveSelectedShape(direction) {
@@ -745,9 +800,7 @@ function showWrapDialog() {
 
   const wrapTypes = [
     { type: 'group', label: 'Group' },
-    { type: 'oscillator', label: 'Oscillator' },
     { type: 'conditional', label: 'Conditional' },
-    { type: 'spinner', label: 'Spinner' },
     { type: 'repeat', label: 'Repeat', defaults: { var: 'i', from: -0.5, to: 0.5, step: 0.25 } },
     { type: 'radialRepeat', label: 'Radial Repeat', defaults: { cx: 0, cy: 0, count: 6 } },
   ];
@@ -893,61 +946,15 @@ function showMoveIntoDialog() {
   treeScroll.appendChild(dialog);
 }
 
-// ─── Animation Wrap/Unwrap Helpers ──────────────────────────────────────────
+// ─── Container Wrap Helpers ─────────────────────────────────────────────────
 
 const WRAP_DEFAULTS = {
   group: { cx: 0, cy: 0, rotation: 0 },
-  oscillator: { var: 'v', rate: 0.003, amplitude: 0.4, phase: 0, activeStates: [], defaultValue: 0 },
   conditional: { visibleStates: [] },
-  spinner: { cx: 0, cy: 0, rate: 0.01, copies: 1 },
   radialRepeat: { cx: 0, cy: 0, count: 6 },
 };
 
-/** Wrap a shape at the given path in an animation container. Returns the new child path. */
-export function wrapShapeInAnimation(artDef, path, animationType) {
-  const parentShapes = getParentShapesAtPath(artDef, path);
-  if (!parentShapes) return null;
-  const defaults = WRAP_DEFAULTS[animationType];
-  if (!defaults) return null;
-  const idx = path[path.length - 1];
-  const shape = parentShapes[idx];
-  const wrapper = {
-    name: `${animationType}Wrapper`,
-    type: animationType,
-    ...JSON.parse(JSON.stringify(defaults)),
-    shapes: [shape],
-  };
-  // For spinners/oscillators, steal the child's cx/cy as the wrapper's pivot
-  // and zero out the child so it sits at the wrapper's origin
-  if ('cx' in wrapper && shape.cx !== undefined) {
-    wrapper.cx = shape.cx;
-    shape.cx = 0;
-  }
-  if ('cy' in wrapper && shape.cy !== undefined) {
-    wrapper.cy = shape.cy;
-    shape.cy = 0;
-  }
-  parentShapes[idx] = wrapper;
-  return [...path, 0];
-}
-
-/** Remove the animation container parent of a shape. Returns the new path to the unwrapped shape. */
-export function removeParentAnimation(artDef, childPath) {
-  if (childPath.length < 2) return null;
-  const parentPath = childPath.slice(0, -1);
-  const grandParentShapes = getParentShapesAtPath(artDef, parentPath);
-  if (!grandParentShapes) return null;
-  const parentIdx = parentPath[parentPath.length - 1];
-  const parent = grandParentShapes[parentIdx];
-  if (!parent.shapes || parent.shapes.length === 0) return null;
-  if (!CONTAINER_TYPES.has(parent.type)) return null;
-  const childIdx = childPath[childPath.length - 1];
-  const children = parent.shapes;
-  grandParentShapes.splice(parentIdx, 1, ...children);
-  return [...parentPath.slice(0, -1), parentIdx + childIdx];
-}
-
-/** Collect animation variables available at a given path (from ancestor oscillators/repeats). */
+/** Collect loop variables available at a given path (from ancestor repeat/forEach). */
 export function collectAvailableVars(artDef, path) {
   const vars = [];
   if (!path || path.length === 0) return vars;

@@ -10,6 +10,10 @@ import { EffectsRenderer } from '/engine/render/EffectsRenderer.js';
 import { FXSequenceRunner } from '/engine/fx/FXSequenceRunner.js';
 import { buildArtRegistry } from '/engine/data/art.js';
 import { VFX_DEFS } from '/engine/data/vfx.js';
+import { setEffectResolver } from '/engine/render/ArtInterpreter.js';
+
+// Let art `effectRef` shapes resolve to VFX effects by id (keeps the interpreter pure).
+setEffectResolver((id) => VFX_DEFS[id]);
 
 import critterArt from '/data/critter-art.json' with { type: 'json' };
 import propArt from '/data/prop-art.json' with { type: 'json' };
@@ -40,6 +44,9 @@ function onSignal(name, data, opts) {
   if (name === 'setState') e.state = (data && data.state) || 'idle';
   else if (name === 'clearState') { if (e.state !== 'linked') e.state = 'idle'; }
   else if (name === 'removeEntity') e._remove = true;
+  // Restart the entity's play-once art clip from t=0 even when the state didn't
+  // change (re-pet a still-happy critter) — stamps the keyframe-clock epoch.
+  else if (name === 'restartClip') { (e._artTransition = e._artTransition || {}).startTime = performance.now(); }
 }
 const sequences = new FXSequenceRunner(sound, effects, onSignal);
 

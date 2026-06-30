@@ -82,7 +82,8 @@ export class GardenScene extends Scene {
   // ─── Spawning / interaction ──────────────────────────────────────
   _spawn(x, y, withFx = true) {
     if (this.critters.length >= MAX_CRITTERS) return null;
-    const species = (this._spawnToggle++ % 2 === 0) ? 'blob' : 'sprout';
+    const pool = ['blob', 'sprout', 'beetle'];
+    const species = pool[this._spawnToggle++ % pool.length];
     const c = new Critter(x, y, species);
     this.critters.push(c);
     if (withFx) this.shared.sequences.play('critterSpawn', { x, y, entity: c });

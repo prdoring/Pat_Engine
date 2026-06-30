@@ -53,7 +53,8 @@ parallax background all scale with zoom.
 ### `drawUnifiedArt(ctx, r, color, artDef, state, now, transition?, durationOverride?)`
 Game-agnostic vector-art interpreter. `r` scales the art; `color` is the default fill/stroke when a
 shape omits its own. `state` selects per-shape `states` overrides + `visibleStates`. See
-**Art format** below.
+**Art format** below. An `effectRef` shape embeds a persistent VFX effect by id — call
+`setEffectResolver(id => VFX_DEFS[id])` once at wiring time so the interpreter stays data-agnostic.
 
 ### `EffectsManager` (`engine/fx/EffectsManager.js`) + `EffectsRenderer` (`engine/render/EffectsRenderer.js`)
 ```js
@@ -143,16 +144,23 @@ sequence's timed steps: `sfx` / `vfx` / `loopStart` / `loopStop` / `signal`. `si
 ## Asset formats (authoring)
 
 **Art** (`{ "<collection>": { "<id>": asset } }`): each asset is
-`{ name, states:[...], setup, shapes:[...] }`. Shapes: `circle`, `path`, `lines`, `arc`, `rect`,
-`group` (with `animators:[{type:"oscillator",var,rate,amplitude,base}]`), `spinner`, etc. Coordinates:
-plain numbers are `val * r`; objects `{ base, <animVar> }` are linear combinations; `…Abs` keys are
+`{ name, states:[...], setup, animations?, shapes:[...] }`. Shapes: `circle`, `path`, `lines`, `arc`,
+`rect`, `group`, `radialRepeat`, `repeat`, `forEach`, `conditional`, `effectRef`, etc. Coordinates:
+plain numbers are `val * r`; objects `{ base, r, w, h }` are linear combinations; `…Abs` keys are
 absolute. Per-shape state overrides use **`states: { <state>: {…} }`** (not `stateOverrides`);
-`visibleStates:[...]` for conditional visibility.
+`visibleStates:[...]` for conditional visibility. **Animation is keyframe tracks:** asset-level clip
+metadata `animations: { "*"|<state>: { duration, loop } }` (the `"*"` clip is composited under every
+state) plus per-shape tracks `anim: { <clipKey>: { <propPath>: [ { t, v, ease? } ] } }` — any property
+path (`cx`, `radiusAbs`, `rotation`, `setup.alpha`, `points.2`…) tweens between keys. Looping clips run
+on absolute time; `loop:false` clips play once from state-entry and hold. (The old oscillator/spinner
+`animators` system was removed.)
 
 **VFX** (`{ "effects": { ... } }`): `phased` (one-shot or `lifecycle:"persistent"`) with
 time-windowed `phases[].layers[]` of primitives (`filledCircle`, `gradientCircle`, `strokeRing`,
-`dashedRing`, `spikeLines`); `bubbleTrail`/`taperedTrail`; `wiggleBeam`. Value forms: static,
-`{from,to}`, `{from,to,modulate:{freq,amp}}`, `{base,amplitude,freq}`.
+`dashedRing`, `spikeLines`, and randomized-cloud `scatterDots`/`scatterLines`/`scatterStrips`);
+`bubbleTrail`/`taperedTrail`; `wiggleBeam`. Value forms: static, `{from,to}`,
+`{from,to,modulate:{freq,amp}}`, `{base,amplitude,freq}`. Particle clouds live here now (a
+`scatter*` layer in a persistent effect), embedded in art via `effectRef`; art `particles` is deprecated.
 
 **SFX** (`{ categories, sounds }`): each sound is `{ volume, range, category, loop, synth }`; `synth`
 is layers (`sine`/`square`/`sawtooth`/`triangle`/`file`/`noise`) + envelope/LFO/reverb, plus optional

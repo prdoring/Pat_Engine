@@ -4,14 +4,24 @@
       "name": "Flower",
       "states": ["idle"],
       "setup": { "lineWidth": 1.5 },
+      "animations": {
+        "*": { "duration": 10472, "loop": true }
+      },
       "shapes": [
         { "name": "Stem", "type": "lines", "stroke": true,
           "setup": { "strokeColor": "#5f8a4a", "lineWidth": 2 },
           "segments": [ [[0, 1.0], [0, 0]] ] },
-        { "name": "Petals", "type": "spinner", "cx": 0, "cy": 0, "rate": 0.0006, "copies": 6,
+        { "name": "Petals", "type": "group", "rotation": 0,
           "setup": { "fillColor": "#e88ab0", "alpha": 0.9, "shadowBlur": 4 },
-          "shapes": [
-            { "name": "petal", "type": "circle", "fill": true, "cx": 0, "cy": -0.5, "radiusAbs": 6 }
+          "anim": {
+            "*": { "rotation": [ { "t": 0, "v": 0 }, { "t": 10472, "v": 6.283185, "ease": "linear" } ] }
+          },
+          "children": [
+            { "type": "radialRepeat", "count": 6, "cx": 0, "cy": 0, "radius": 0,
+              "children": [
+                { "name": "petal", "type": "circle", "fill": true, "cx": 0, "cy": -0.5, "radiusAbs": 6 }
+              ]
+            }
           ]
         },
         { "name": "Center", "type": "circle", "fill": true, "cx": 0, "cy": 0, "radiusAbs": 5,
@@ -51,16 +61,20 @@
       "name": "Garden Emblem",
       "states": ["idle"],
       "setup": { "lineWidth": 2 },
+      "animations": {
+        "*": { "duration": 3927, "loop": true }
+      },
       "shapes": [
-        { "name": "Pulse ring", "type": "group",
-          "animators": [
-            { "type": "oscillator", "var": "pulse", "rate": 0.0016, "amplitude": 0.5, "base": 0.5 }
-          ],
-          "children": [
-            { "name": "ring", "type": "circle", "stroke": true, "cx": 0, "cy": 0,
-              "radiusAbs": { "base": 30, "pulse": 6 },
-              "setup": { "strokeColor": "#7cc6a0", "alpha": { "base": 0.5, "pulse": 0.3 }, "shadowBlur": { "base": 8, "pulse": 10 } } }
-          ]
+        { "name": "Pulse ring", "type": "circle", "stroke": true, "cx": 0, "cy": 0,
+          "radiusAbs": { "base": 30 },
+          "setup": { "strokeColor": "#7cc6a0", "alpha": 0.5, "shadowBlur": 8 },
+          "anim": {
+            "*": {
+              "radiusAbs": [ { "t": 0, "v": { "base": 30 } }, { "t": 1963, "v": { "base": 36 }, "ease": "easeInOutSine" }, { "t": 3927, "v": { "base": 30 }, "ease": "easeInOutSine" } ],
+              "setup.alpha": [ { "t": 0, "v": 0.5 }, { "t": 1963, "v": 0.8, "ease": "easeInOutSine" }, { "t": 3927, "v": 0.5, "ease": "easeInOutSine" } ],
+              "setup.shadowBlur": [ { "t": 0, "v": 8 }, { "t": 1963, "v": 18, "ease": "easeInOutSine" }, { "t": 3927, "v": 8, "ease": "easeInOutSine" } ]
+            }
+          }
         },
         { "name": "Arc upper", "type": "arc", "stroke": true, "cx": 0, "cy": 0, "radius": 0.6,
           "startAngle": "-PI*0.85", "endAngle": "-PI*0.15",

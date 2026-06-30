@@ -857,7 +857,12 @@ export function TreeView(data, renderNode, onSelect) {
 }
 
 // ─── CoordEditor ──────────────────────────────────────────────────────────
-// Edits an art coordinate value: number (r-relative) or object { w, h, r, <animVar> }
+// Edits an art coordinate value: number (r-relative) or object { base, w, h, r, <animVar> }
+
+// Optional readout provider: fn(value) → a "= N px" hint shown under each CoordEditor.
+// The art editor sets it (it knows the preview radius / space); generic editors leave it null.
+let _coordReadout = null;
+export function setCoordReadout(fn) { _coordReadout = fn; }
 
 export function CoordEditor(label, value, availableVars, onChange) {
   const container = document.createElement('div');
@@ -870,6 +875,11 @@ export function CoordEditor(label, value, availableVars, onChange) {
 
   const body = document.createElement('div');
   container.appendChild(body);
+
+  const readoutEl = document.createElement('div');
+  readoutEl.style.cssText = 'color:#5a4a30;font-size:9px;padding:1px 0 2px 4px;font-family:monospace;';
+  container.appendChild(readoutEl);
+  function updateReadout() { readoutEl.textContent = _coordReadout ? _coordReadout(value) : ''; }
 
   // Normalize: if value is a plain number, treat as { r: value }
   let isSimple = typeof value === 'number';
@@ -902,6 +912,7 @@ export function CoordEditor(label, value, availableVars, onChange) {
       const sync = (v) => {
         value = parseFloat(v) || 0;
         onChange(value);
+        updateReadout();
       };
       slider.addEventListener('input', () => { numInput.value = slider.value; sync(slider.value); });
       numInput.addEventListener('change', () => { slider.value = numInput.value; sync(numInput.value); });
@@ -926,8 +937,10 @@ export function CoordEditor(label, value, availableVars, onChange) {
     } else {
       // Object mode: one row per component
       let obj = typeof value === 'object' && value !== null ? { ...value } : {};
-      const COORD_KEYS = ['w', 'h', 'r'];
-      const bounds = { w: [-2, 2, 0.05], h: [-2, 2, 0.05], r: [-3, 3, 0.05] };
+      // `base` is an unscaled absolute-px constant (wider range/step); r/w/h are
+      // coefficients of the radius / space dims.
+      const COORD_KEYS = ['base', 'r', 'w', 'h'];
+      const bounds = { base: [-100, 100, 1], r: [-3, 3, 0.05], w: [-2, 2, 0.05], h: [-2, 2, 0.05] };
 
       for (const [key, val] of Object.entries(obj)) {
         const b = bounds[key] || [-5, 5, 0.05];
@@ -957,6 +970,7 @@ export function CoordEditor(label, value, availableVars, onChange) {
           obj[syncKey] = parseFloat(v) || 0;
           value = obj;
           onChange(value);
+          updateReadout();
         };
         slider.addEventListener('input', () => { numInput.value = slider.value; syncFn(slider.value); });
         numInput.addEventListener('change', () => { slider.value = numInput.value; syncFn(numInput.value); });
@@ -1009,6 +1023,7 @@ export function CoordEditor(label, value, availableVars, onChange) {
         body.appendChild(addRow);
       }
     }
+    updateReadout();
   }
 
   rebuild();

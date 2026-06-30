@@ -3,7 +3,7 @@
 A reusable, **no-build** 2D game engine for the browser — extracted from Sub Game. It bundles the
 hard-won, data-driven creative pipeline:
 
-- **Vector art** — a declarative Canvas2D art interpreter + editor (shapes, states, animators).
+- **Vector art** — a declarative Canvas2D art interpreter + editor (shapes, states, keyframe timeline).
 - **VFX** — a data-driven effects interpreter + editor (phased effects, trails, beams).
 - **Sequences** — an FX-sequence runner + timeline editor that orchestrate **sound + VFX + state
   changes together** from JSON.
