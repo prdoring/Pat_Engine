@@ -20,10 +20,16 @@ export function buildSidebar() {
 
   // Top toolbar: create a new collection (folder).
   const topBar = document.createElement('div');
-  topBar.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:2px 0 4px;border-bottom:1px solid #2a2a3a;margin-bottom:4px;';
+  topBar.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:4px;padding:2px 0 4px;border-bottom:1px solid #2a2a3a;margin-bottom:4px;';
+  const collapseBtn = document.createElement('button');
+  collapseBtn.textContent = '‹';
+  collapseBtn.title = 'Collapse collections sidebar';
+  collapseBtn.style.cssText = 'padding:0 5px;font-size:13px;line-height:1;color:#7a6a4a;background:transparent;border:1px solid #3a3a4a;border-radius:3px;cursor:pointer;';
+  collapseBtn.addEventListener('click', () => ctx.toggleSidebar?.(true));
+  topBar.appendChild(collapseBtn);
   const topLabel = document.createElement('span');
   topLabel.textContent = 'COLLECTIONS';
-  topLabel.style.cssText = 'color:#7a6a4a;font-size:10px;font-weight:bold;letter-spacing:0.5px;';
+  topLabel.style.cssText = 'color:#7a6a4a;font-size:10px;font-weight:bold;letter-spacing:0.5px;flex:1;';
   topBar.appendChild(topLabel);
   const addColBtn = document.createElement('button');
   addColBtn.textContent = '+ Folder';

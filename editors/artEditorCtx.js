@@ -52,6 +52,7 @@ export const ctx = {
 
   // DOM refs
   container: null,
+  sidebarCollapsed: false,   // collections sidebar collapsed for more working room
   sidebarEl: null,
   treeColumnEl: null,
   stateBarEl: null,
@@ -66,6 +67,7 @@ export const ctx = {
   rebuildStateBar: null,
   rebuildControls: null,
   rebuildTimeline: null,
+  toggleSidebar: null,
   clearProps: null,
   markDirty: null,
   rebuildSaveRow: null,

@@ -39,7 +39,7 @@ export function createArtTimeline(container) {
   container.appendChild(el);
 
   const cx = canvas.getContext('2d');
-  let zoom = 1, scrollX = 0, drag = null, rows = [];
+  let zoom = 1, scrollX = 0, scrollY = 0, drag = null, rows = [];
 
   const dpr = () => window.devicePixelRatio || 1;
   const W = () => parseFloat(canvas.style.width) || 600;
@@ -51,6 +51,11 @@ export function createArtTimeline(container) {
   const xAt = (t) => GUTTER + t * pxPerMs() - scrollX;
   const timeAt = (x) => (x - GUTTER + scrollX) / pxPerMs();
   const clampX = () => { scrollX = Math.max(0, Math.min(scrollX, Math.max(0, duration() * pxPerMs() - (W() - GUTTER)))); };
+  // Vertical row scroll (the ruler stays pinned; only the track rows scroll) so
+  // a tall track list is fully reachable inside a short panel — no page scroll.
+  const visRowsH = () => Math.max(0, H() - RULER);
+  const maxScrollY = () => Math.max(0, rows.length * ROW_H - visRowsH());
+  const clampY = () => { scrollY = Math.max(0, Math.min(scrollY, maxScrollY())); };
 
   // ── Transport bar ──────────────────────────────────────────────────────────
   function buildBar() {
@@ -123,19 +128,21 @@ export function createArtTimeline(container) {
       bar.appendChild(mk.el);
     }
 
-    const time = document.createElement('span');
-    time.className = 'kf-time';
-    time.textContent = `${Math.round(ctx.playhead || 0)} / ${clip.duration}ms`;
-    bar.appendChild(time);
-    timeReadout = time;
-
     addHint();
   }
+  // The live playhead time is shown in the hint slot (kept compact so the transport
+  // stays a single row); updated by setPlayhead/advance when present.
   let timeReadout = null;
   function addHint() {
+    const t = document.createElement('span');
+    t.className = 'kf-time';
+    t.textContent = `${Math.round(ctx.playhead || 0)}ms`;
+    bar.appendChild(t);
+    timeReadout = t;
     const hint = document.createElement('span');
     hint.className = 'kf-hint';
-    hint.textContent = 'drag ruler = scrub · drag ◆ = retime · dbl-click row = add key · right-click ◆ = delete · Ctrl+wheel zoom';
+    hint.textContent = 'ruler=scrub · ◆=move · dbl-click=add · ⌃wheel=zoom · wheel=rows';
+    hint.title = 'Drag the ruler to scrub · drag a ◆ to retime · double-click a row to add a key · right-click a ◆ to delete · Ctrl/Cmd+wheel = zoom · Shift+wheel = pan · plain wheel = scroll rows';
     bar.appendChild(hint);
   }
 
@@ -146,7 +153,7 @@ export function createArtTimeline(container) {
     const w = Math.floor(r.width), h = Math.floor(r.height), d = dpr();
     canvas.width = Math.floor(w * d); canvas.height = Math.floor(h * d);
     canvas.style.width = w + 'px'; canvas.style.height = h + 'px';
-    clampX(); redraw();
+    clampX(); clampY(); redraw();
   }
 
   // ── Draw ─────────────────────────────────────────────────────────────────
@@ -179,9 +186,12 @@ export function createArtTimeline(container) {
       cx.fillStyle = '#7a8aa0'; cx.fillText((t / 1000).toFixed(2) + 's', x + 3, RULER / 2);
     }
 
-    // rows
+    // rows (clipped below the pinned ruler; scrolled by scrollY)
+    cx.save();
+    cx.beginPath(); cx.rect(0, RULER, w, h - RULER); cx.clip();
     rows.forEach((row, i) => {
-      const y = RULER + i * ROW_H;
+      const y = RULER + i * ROW_H - scrollY;
+      if (y + ROW_H < RULER || y > h) return; // off-screen
       const selShape = ctx.selectedShapePath && ctx.selectedShapePath.join(',') === row.path.join(',');
       // gutter label
       cx.fillStyle = selShape ? '#1c2636' : (i % 2 ? '#0d131c' : '#0b1018');
@@ -200,12 +210,23 @@ export function createArtTimeline(container) {
         diamond(cx, x, y + ROW_H / 2, sel ? 6 : 4, sel ? '#ffe08a' : '#d4a056', sel ? '#fff' : '#7a5a28');
       }
     });
+    cx.restore();
 
     // playhead
     const px = xAt(ctx.playhead || 0);
     if (px >= GUTTER - 1 && px <= w) {
       cx.strokeStyle = '#e07b3a'; cx.lineWidth = 1.5;
       cx.beginPath(); cx.moveTo(px, 0); cx.lineTo(px, h); cx.stroke();
+    }
+
+    // scroll affordance: a slim thumb on the right when rows overflow
+    const maxY = maxScrollY();
+    if (maxY > 0) {
+      const trackH = h - RULER;
+      const thumbH = Math.max(18, trackH * (visRowsH() / (rows.length * ROW_H)));
+      const thumbY = RULER + (trackH - thumbH) * (scrollY / maxY);
+      cx.fillStyle = '#2c3a4e'; cx.fillRect(w - 4, RULER, 3, trackH);
+      cx.fillStyle = '#5a7090'; cx.fillRect(w - 4, thumbY, 3, thumbH);
     }
   }
 
@@ -216,7 +237,7 @@ export function createArtTimeline(container) {
 
   // ── Hit-testing + interaction ──────────────────────────────────────────────
   const pos = (e) => { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
-  function rowAt(y) { if (y < RULER) return -1; const i = Math.floor((y - RULER) / ROW_H); return i >= 0 && i < rows.length ? i : -1; }
+  function rowAt(y) { if (y < RULER) return -1; const i = Math.floor((y - RULER + scrollY) / ROW_H); return i >= 0 && i < rows.length ? i : -1; }
   function keyAt(x, y) {
     const i = rowAt(y); if (i < 0) return null;
     const row = rows[i];
@@ -231,7 +252,7 @@ export function createArtTimeline(container) {
   }
   function setPlayhead(t, commit) {
     ctx.playhead = Math.max(0, Math.min(duration(), t));
-    if (timeReadout) timeReadout.textContent = `${Math.round(ctx.playhead)} / ${duration()}ms`;
+    if (timeReadout) timeReadout.textContent = `${Math.round(ctx.playhead)}ms`;
     renderPreview(); redraw();
   }
   const arm = () => { window.addEventListener('mousemove', onMove); window.addEventListener('mouseup', onUp); };
@@ -312,6 +333,9 @@ export function createArtTimeline(container) {
       scrollX = under * pxPerMs() - (x - GUTTER); clampX(); redraw();
     } else if (e.shiftKey) {
       e.preventDefault(); scrollX += e.deltaY; clampX(); redraw();
+    } else if (maxScrollY() > 0) {
+      // plain vertical wheel scrolls the track rows (ruler stays pinned)
+      e.preventDefault(); scrollY += e.deltaY; clampY(); redraw();
     }
   }
 
@@ -336,6 +360,7 @@ export function createArtTimeline(container) {
     if (!art()) { rows = []; bar.innerHTML = ''; canvas.height && (cx.setTransform(dpr(), 0, 0, dpr(), 0, 0), cx.clearRect(0, 0, W(), H())); return; }
     if (!ctx.keyTargetClip || !clipKeyValid(ctx.keyTargetClip)) ctx.keyTargetClip = defaultClip();
     rows = clipMeta(art(), clipKey()) ? listTracks(art(), clipKey()) : [];
+    clampY();
     buildBar(); resize(); redraw();
   }
   function clipKeyValid(k) {
@@ -357,7 +382,7 @@ export function createArtTimeline(container) {
     if (clip.loop !== false) { p %= clip.duration; if (p < 0) p += clip.duration; }
     else p = Math.min(p, clip.duration);
     ctx.playhead = p;
-    if (timeReadout) timeReadout.textContent = `${Math.round(p)} / ${clip.duration}ms`;
+    if (timeReadout) timeReadout.textContent = `${Math.round(p)}ms`;
     redraw();
   }
   function destroy() {
@@ -393,15 +418,15 @@ function injectStyle() {
   const s = document.createElement('style'); s.id = 'kf-style';
   s.textContent = `
   .kf-wrap{display:flex;flex-direction:column;height:100%;min-height:0;background:#0b1018;border-top:1px solid #2a3a4a}
-  .kf-transport{display:flex;align-items:center;gap:6px;padding:4px 8px;flex-wrap:wrap;flex-shrink:0;border-bottom:1px solid #1a2230}
+  .kf-transport{display:flex;align-items:center;gap:5px;padding:3px 6px;flex-wrap:wrap;flex-shrink:0;border-bottom:1px solid #1a2230}
   .kf-canvas-wrap{position:relative;flex:1 1 auto;min-height:0;overflow:hidden}
   .kf-canvas{display:block;cursor:crosshair}
   .kf-dur{color:#7a8aa0;font-size:11px;display:inline-flex;align-items:center;gap:3px}
-  .kf-dur input{width:60px;background:#11161f;border:1px solid #2a3a4a;color:#cdd6e4;font-size:11px;padding:2px 4px;border-radius:3px}
+  .kf-dur input{width:52px;background:#11161f;border:1px solid #2a3a4a;color:#cdd6e4;font-size:11px;padding:1px 4px;border-radius:3px}
   .kf-unit{color:#5f7088;font-size:10px}
   .kf-time{color:#7a8aa0;font-size:11px;font-family:monospace}
   .kf-armed{color:#e0543a;font-size:10px;font-weight:bold;font-family:monospace}
-  .kf-hint{color:#4a5a70;font-size:9px;margin-left:auto;white-space:nowrap}
+  .kf-hint{color:#4a5a70;font-size:9px;margin-left:auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   `;
   document.head.appendChild(s);
 }

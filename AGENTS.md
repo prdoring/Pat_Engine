@@ -332,12 +332,17 @@ drawUnifiedArt(ctx, r, color, art.critters.blob, state, now /*, transition?, dur
   clip via `transition.animTime[clipKey]`; `restartClip` re-stamps the play-once epoch. Unknown shape
   types warn once (dev) and skip. (The legacy oscillator/spinner `animators` system was removed; the
   one lost capability is per-copy `phase` staggering inside `repeat`/`forEach`/`radialRepeat`.)
-- **`effectRef`** embeds a VFX effect by id: `{ type:"effectRef", effect, cx, cy, scale? }`
-  draws a **persistent** phased VFX effect (a one-shot draws frozen). The interpreter stays
-  data-agnostic: the host injects the lookup via `setEffectResolver(id => VFX_DEFS[id])` —
-  wired in `game/main.js`, `game/shots.js`, and the art-editor preview. This is the seam for
-  unifying particle authoring in the VFX tab; the legacy art `particles` shape still renders
-  but is deprecated for new authoring.
+- **`effectRef`** embeds a VFX effect by id: `{ type:"effectRef", effect, cx, cy, scale?,
+  progress? }` — the third VFX category (asset-embedded, vs sequence- or code-triggered).
+  Playback is **decoupled from the keyframe timeline by default**: with no `progress`, a
+  **persistent** effect runs on its own clock (independent speed/looping) and a one-shot draws
+  frozen. A keyframed **`progress` (0..1) track** is the explicit opt-in that drives the effect's
+  lifecycle from the clip timeline — ramp 0→1 to *fire* a burst in sync with the animation (the
+  editor's effectRef "▶ Fire over <clip>" button writes it; gate with `visibleStates`). `cx/cy/
+  scale` are keyframeable to move/grow it in either mode. The interpreter stays data-agnostic: the
+  host injects the lookup via `setEffectResolver(id => VFX_DEFS[id])` — wired in `game/main.js`,
+  `game/shots.js`, and the art-editor preview. The legacy art `particles` shape still renders but
+  is deprecated (author particle clouds in the VFX tab and embed via `effectRef`).
 - Always draw under the camera transform (see Critter Garden's `GardenRenderer._drawArtAt`):
   `translate(screen); scale(zoom); drawUnifiedArt(ctx, r, ...)` so absolute radii, line
   widths, and glow scale with zoom too.

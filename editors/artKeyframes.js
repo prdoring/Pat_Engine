@@ -173,6 +173,14 @@ export function keyframeableProps(shape) {
   const t = shape.type;
   const out = [];
   const add = (prop, label, kind) => out.push({ prop, label, kind });
+  if (t === 'effectRef') {
+    // A VFX effect attached to the art: keyframe where/how-big it draws, and a
+    // `progress` (0..1) track to drive/fire its playback from the clip timeline.
+    add('cx', 'Position X', 'coord'); add('cy', 'Position Y', 'coord');
+    add('scale', 'Scale', 'number');
+    add('progress', 'Effect progress (fire)', 'number');
+    return out;
+  }
   if (t === 'circle' || t === 'arc') {
     add('cx', 'Position X', 'coord'); add('cy', 'Position Y', 'coord');
     add(shape.radiusAbs !== undefined ? 'radiusAbs' : 'radius', 'Radius', 'coord');

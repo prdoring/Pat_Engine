@@ -10,7 +10,7 @@ import {
   PropertyGroup, CoordEditor, TagListEditor, setCoordReadout,
 } from './editorShared.js';
 import {
-  keyframeableProps, getPropValue, getTrack, setKeyframe, ensureClip, makeLoopable, clipMeta,
+  keyframeableProps, getPropValue, getTrack, setKeyframe, deleteTrack, ensureClip, makeLoopable, clipMeta,
 } from './artKeyframes.js';
 
 // Live "= N px" readout under each CoordEditor: resolves the static terms
@@ -755,18 +755,57 @@ function buildEffectRefEditor(parent, shape, vars, onDirty) {
   const ids = Object.keys(VFX_DEFS || {});
   const opts = ids.map(id => ({ value: id, label: id + (VFX_DEFS[id]?.lifecycle === 'persistent' ? '' : ' (one-shot)') }));
   if (!shape.effect || !ids.includes(shape.effect)) opts.unshift({ value: shape.effect || '', label: shape.effect || '(pick an effect)' });
-  parent.appendChild(Select('VFX Effect', opts, shape.effect || '', v => set('effect', v)).el);
+  parent.appendChild(Select('VFX Effect', opts, shape.effect || '', v => { set('effect', v); buildShapeProps(); }).el);
   parent.appendChild(CoordEditor('cx', shape.cx || 0, vars, v => set('cx', v)).el);
   parent.appendChild(CoordEditor('cy', shape.cy || 0, vars, v => set('cy', v)).el);
   parent.appendChild(NumberSlider('Scale (×r)', 0.1, 5, 0.05, shape.scale ?? 1, v => set('scale', v)).el);
 
+  // Playback control: an attached VFX runs INDEPENDENTLY (its own clock — speed,
+  // looping) by default; a keyframe `progress` track in the key-target clip is the
+  // explicit opt-in that drives/fires it from the art timeline.
   const def = VFX_DEFS[shape.effect];
+  const persistent = def && def.lifecycle === 'persistent';
+  const art = ctx.currentArt;
+  const clipKey = ctx.keyTargetClip || '*';
+  const clipLabel = clipKey === '*' ? 'every state' : clipKey;
+  const driven = !!getTrack(shape, clipKey, 'progress');
+
+  const grp = PropertyGroup('Playback');
   const info = document.createElement('div');
-  info.style.cssText = 'color:#7a6a4a;font-size:9px;padding:2px 4px;';
-  info.textContent = def
-    ? (def.lifecycle === 'persistent' ? 'Persistent phased effect — embeds live.' : 'Not persistent — will draw frozen. Pick a persistent effect.')
-    : 'References a VFX effect by id. Author effects in the VFX tab.';
-  parent.appendChild(info);
+  info.style.cssText = 'color:#7fb0d8;font-size:9px;padding:2px 4px;line-height:1.5;';
+  if (!def) {
+    info.textContent = 'References a VFX effect by id. Author effects in the VFX tab.';
+  } else if (driven) {
+    info.textContent = `Timeline-driven: the "${clipLabel}" clip plays this effect via a progress 0→1 track (drag its keys on the timeline). Clear it to hand playback back to the effect's own clock.`;
+  } else if (persistent) {
+    info.textContent = `Persistent — runs continuously on its own clock, independent of the timeline. Keyframe cx/cy/scale to move it, or add a progress track to sync/fire it with the "${clipLabel}" clip.`;
+  } else {
+    info.textContent = `One-shot — draws frozen until driven. Add a progress 0→1 track so the "${clipLabel}" clip fires it (a burst tied to the animation). Tip: limit it with Visible States.`;
+  }
+  grp.body.appendChild(info);
+
+  if (def) {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;margin-top:2px;';
+    const fireBtn = Button(driven ? `↻ Re-fire over ${clipLabel}` : `▶ Fire over ${clipLabel}`, () => {
+      const c = ensureClip(art, clipKey);
+      setKeyframe(shape, clipKey, 'progress', 0, 0, 'linear');
+      setKeyframe(shape, clipKey, 'progress', c.duration, 1, 'linear');
+      onDirty(); ctx.rebuildTimeline?.(); ctx.rebuildProps?.();
+    }, 'primary');
+    fireBtn.el.title = `Write a progress 0→1 ramp across the "${clipLabel}" clip so the effect plays in sync with the animation`;
+    row.appendChild(fireBtn.el);
+    if (driven) {
+      const clr = Button('Clear firing', () => {
+        deleteTrack(shape, clipKey, 'progress');
+        onDirty(); ctx.rebuildTimeline?.(); ctx.rebuildProps?.();
+      }, 'subtle');
+      clr.el.className += ' editor-btn-danger';
+      row.appendChild(clr.el);
+    }
+    grp.body.appendChild(row);
+  }
+  parent.appendChild(grp.el);
 }
 
 function buildConditionalEditor(parent, shape, _stateNames, _onDirty) {

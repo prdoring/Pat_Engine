@@ -198,6 +198,14 @@
               "setup": { "strokeColor": "#2f4f2f", "lineWidth": 2 },
               "segments": [ [[-0.5, 0.1], [-0.86, 0.0]], [[-0.5, 0.34], [-0.86, 0.42]], [[0.5, 0.1], [0.86, 0.0]], [[0.5, 0.34], [0.86, 0.42]] ] }
           ]
+        },
+        { "name": "Cheer poof", "type": "effectRef", "effect": "poof", "cx": 0, "cy": -0.1, "scale": 1.15,
+          "visibleStates": ["happy"],
+          "anim": {
+            "happy": {
+              "progress": [ { "t": 0, "v": 0 }, { "t": 640, "v": 1, "ease": "linear" } ]
+            }
+          }
         }
       ]
     }

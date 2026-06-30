@@ -756,9 +756,13 @@ function drawShapeU(ctx, dc, shape, varMap) {
     }
 
     case 'effectRef': {
-      // Embed a referenced VFX effect (generic primitive — no game noun). Only a
-      // PERSISTENT phased effect embeds correctly (progress = null draws all phases);
-      // a one-shot would draw frozen, so we warn once.
+      // Embed a referenced VFX effect (generic primitive — no game noun).
+      // Playback is decoupled from the keyframe timeline by default: with no
+      // `progress`, a PERSISTENT effect runs on its own clock (independent speed /
+      // looping) and a one-shot draws frozen. A keyframed `progress` (0..1) is the
+      // explicit opt-in that DRIVES the effect's lifecycle from the clip timeline —
+      // ramp 0→1 to fire/sync a burst with the animation. `cx/cy/scale` may be
+      // keyframed to move/grow the effect regardless of which mode it's in.
       if (!_effectResolver) break;
       const def = _effectResolver(shape.effect);
       if (!def) {
@@ -768,14 +772,16 @@ function drawShapeU(ctx, dc, shape, varMap) {
         }
         break;
       }
-      if (def.lifecycle !== 'persistent' && !_effectWarn.has('np:' + shape.effect)) {
+      const driven = typeof shape.progress === 'number';
+      const progress = driven ? Math.max(0, Math.min(1, shape.progress)) : null;
+      if (def.lifecycle !== 'persistent' && !driven && !_effectWarn.has('np:' + shape.effect)) {
         _effectWarn.add('np:' + shape.effect);
-        console.warn(`[ArtInterpreter] effectRef ${JSON.stringify(shape.effect)} is not a persistent effect; it will draw frozen.`);
+        console.warn(`[ArtInterpreter] effectRef ${JSON.stringify(shape.effect)} is a one-shot with no keyframed 'progress'; it draws frozen. Add a progress track to fire it from the timeline.`);
       }
       const ecx = resolveCoord(shape.cx, dc, varMap);
       const ecy = resolveCoord(shape.cy, dc, varMap);
-      const scale = (shape.scale != null ? shape.scale : 1) * dc.r;
-      drawPhasedEffect(ctx, ecx, ecy, def, null, scale, dc.now, { state: dc.state });
+      const scale = (shape.scale != null ? resolveSetupVal(shape.scale, dc) : 1) * dc.r;
+      drawPhasedEffect(ctx, ecx, ecy, def, progress, scale, dc.now, { state: dc.state });
       break;
     }
 

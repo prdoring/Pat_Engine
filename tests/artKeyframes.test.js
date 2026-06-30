@@ -121,6 +121,14 @@ test('keyframeableProps: circle exposes coords/radius/rotation/setup/color', () 
   assert.ok(names.includes('setup.fillColor')); // color path the shape actually uses
 });
 
+test('keyframeableProps: effectRef exposes position/scale + a progress (fire) track', () => {
+  const props = keyframeableProps({ type: 'effectRef', effect: 'poof', cx: 0, cy: 0, scale: 1 });
+  const names = props.map((p) => p.prop);
+  assert.deepEqual(names, ['cx', 'cy', 'scale', 'progress']);
+  // No rotation/alpha/color — the embedded VFX ignores those (only transform + progress).
+  assert.ok(!names.includes('rotation') && !names.includes('setup.alpha'));
+});
+
 test('colorPropPath prefers the path the shape actually reads', () => {
   assert.equal(colorPropPath({ type: 'circle', fillColor: '#abc' }), 'fillColor');
   assert.equal(colorPropPath({ type: 'circle', setup: { fillColor: '#abc' } }), 'setup.fillColor');

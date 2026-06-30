@@ -185,12 +185,30 @@ function buildUI() {
   main.className = 'editor-three-col';
 
   // Column 1: Asset browser
+  // Thin rail shown in place of the collapsed collections sidebar; click to reopen.
+  const sidebarRail = document.createElement('div');
+  sidebarRail.className = 'editor-collapse-rail';
+  sidebarRail.style.cssText = 'display:none;width:16px;flex-shrink:0;cursor:pointer;background:rgba(8,14,24,0.92);border-right:1px solid #2a2a3a;color:#7a6a4a;font-size:11px;align-items:flex-start;justify-content:center;padding-top:8px;writing-mode:vertical-rl;';
+  sidebarRail.textContent = '▸ Collections';
+  sidebarRail.title = 'Show collections';
+  main.appendChild(sidebarRail);
+
   ctx.sidebarEl = document.createElement('div');
   ctx.sidebarEl.className = 'editor-sidebar';
   ctx.sidebarEl.style.cssText = 'width:180px;display:flex;flex-direction:column;overflow:hidden;';
   main.appendChild(ctx.sidebarEl);
   const sidebarResizer = createResizer('horizontal', ctx.sidebarEl, { min: 120, max: 350 }).el;
   main.appendChild(sidebarResizer);
+
+  // Collapse/expand the collections sidebar for more working room (the tree + canvas
+  // grow into the freed space). State lives on ctx so sidebar rebuilds preserve it.
+  ctx.toggleSidebar = (collapsed) => {
+    ctx.sidebarCollapsed = collapsed;
+    ctx.sidebarEl.style.display = collapsed ? 'none' : '';
+    sidebarResizer.style.display = collapsed ? 'none' : '';
+    sidebarRail.style.display = collapsed ? 'flex' : 'none';
+  };
+  sidebarRail.addEventListener('click', () => ctx.toggleSidebar(false));
 
   // Column 2: Shape tree
   ctx.treeColumnEl = document.createElement('div');
