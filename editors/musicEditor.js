@@ -317,12 +317,6 @@ function onNotesEdited() {
   if (playing) music.updateStemNotes(selectedStem.name, selectedStem.notes, song());
 }
 
-/** Push every stem's notes to the playing engine (after a tempo/length change). */
-function pushAllStems() {
-  if (!playing) return;
-  for (const stem of song().stems) if (stem.notes) music.updateStemNotes(stem.name, stem.notes, song());
-}
-
 // ─── Note import (paste ABC · upload .mid/.abc · pick from assets/MIDI) ─────────
 
 /** Parsed MIDI → a beats pattern, prompting for the track when there's more than one. */
@@ -355,14 +349,47 @@ async function fileToNotes(file, grid, beatsPerBar) {
   return importAbc(await file.text(), { grid, beatsPerBar });
 }
 
-/** Put imported notes onto a stem (replace or merge), push live + commit one undo step. */
+const MAX_BARS = 64; // safety ceiling when auto-growing the song to fit an import
+
+/** Grow song.bars so every note in `notes` fits inside whole bars. Returns {changed, capped, want}. */
+function extendBarsToFit(notes) {
+  ensureTiming(song());
+  const s = song();
+  let maxEnd = 0;
+  for (const n of (notes || [])) maxEnd = Math.max(maxEnd, (n.beat || 0) + (n.len || 0));
+  const want = Math.max(1, Math.ceil(maxEnd / s.beatsPerBar - 1e-9));
+  const needed = Math.min(MAX_BARS, want);
+  let changed = false;
+  if (needed > s.bars) { s.bars = needed; changed = true; }
+  return { changed, capped: want > MAX_BARS, want };
+}
+
+/**
+ * Put imported notes onto a stem (replace or merge), grow the song length to fit them, push the
+ * change live, and commit one undo step. A song has a single shared loop length (song.bars ×
+ * beatsPerBar), so an import longer than the current song must extend `bars` or it would loop
+ * (and play) out of step. Returns the bar-fit result so callers can surface a cap warning.
+ */
 function applyImportedNotes(stem, notes, mode) {
   stem.notes = mode === 'add' ? sortNotes([...(stem.notes || []), ...notes]) : notes;
   selectedStem = stem;
+  const fit = extendBarsToFit(stem.notes);
   saveManager.markDirty();
-  if (playing) music.updateStemNotes(stem.name, stem.notes, song());
+  if (playing) {
+    // Length change → rebuild every stem on the new loop grid; otherwise just push this stem.
+    if (fit.changed) resyncIfPlaying();
+    else music.updateStemNotes(stem.name, stem.notes, song());
+  }
   commitUndo();
   buildUI();
+  return fit;
+}
+
+/** Show parser warnings + a bar-cap notice (if any) after an import. */
+function importNotice(fit, warnings = []) {
+  const msgs = [...(warnings || [])];
+  if (fit?.capped) msgs.push(`This tune is ${fit.want} bars long — the song was capped at ${MAX_BARS} bars, so notes past bar ${MAX_BARS} may not loop in time.`);
+  if (msgs.length) modalAlert(msgs.join('\n'), { title: 'Imported (with notes)' });
 }
 
 /** The unified import modal: paste ABC, upload a file, or pick from assets/MIDI. */
@@ -437,8 +464,8 @@ async function importInto(stem) {
   });
 
   if (!result) return;
-  applyImportedNotes(stem, result.notes, result.mode);
-  if (result.warnings?.length) modalAlert(result.warnings.join('\n'), { title: 'Imported (with notes)' });
+  const fit = applyImportedNotes(stem, result.notes, result.mode);
+  importNotice(fit, result.warnings);
 }
 
 // ─── Stem note ops: transpose · quantize · copy as ABC ─────────────────────────
@@ -517,8 +544,8 @@ async function importFileDirect(file) {
   const res = await fileToNotes(file, song().grid, song().beatsPerBar);
   if (!res) return;
   if (!res.notes.length) { modalAlert('No notes found in ' + file.name, { title: 'Import' }); return; }
-  applyImportedNotes(stem, res.notes, 'replace');
-  if (res.warnings?.length) modalAlert(res.warnings.join('\n'), { title: 'Imported (with notes)' });
+  const fit = applyImportedNotes(stem, res.notes, 'replace');
+  importNotice(fit, res.warnings);
 }
 
 // ─── UI ──────────────────────────────────────────────────────────────────────
@@ -716,9 +743,9 @@ function buildSettingsRow() {
   };
 
   // Tempo grid (drives the piano roll + loop length)
-  row.appendChild(numField('BPM', song().bpm, 40, 300, val => { song().bpm = val; pushAllStems(); pianoRoll?.setSong(song()); }));
-  row.appendChild(numField('Bars', song().bars, 1, 32, val => { song().bars = val; pushAllStems(); pianoRoll?.setSong(song()); }));
-  row.appendChild(numField('Beats/bar', song().beatsPerBar, 1, 12, val => { song().beatsPerBar = val; pushAllStems(); pianoRoll?.setSong(song()); }));
+  row.appendChild(numField('BPM', song().bpm, 40, 300, val => { song().bpm = val; resyncIfPlaying(); pianoRoll?.setSong(song()); }));
+  row.appendChild(numField('Bars', song().bars, 1, MAX_BARS, val => { song().bars = val; resyncIfPlaying(); pianoRoll?.setSong(song()); }));
+  row.appendChild(numField('Beats/bar', song().beatsPerBar, 1, 12, val => { song().beatsPerBar = val; resyncIfPlaying(); pianoRoll?.setSong(song()); }));
   const gridWrap = el('div', 'me-knob');
   gridWrap.appendChild(el('label', null, 'Grid'));
   gridWrap.appendChild(selectEl(GRID_OPTS, String(song().grid), val => { song().grid = parseFloat(val); saveManager.markDirty(); pianoRoll?.setSong(song()); commitUndo(); }));
