@@ -135,14 +135,14 @@ function buildUI() {
 
   // Preview controls
   previewControlsEl = document.createElement('div');
-  previewControlsEl.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:8px;border:1px solid #5a4a30;border-radius:4px;flex-shrink:0;';
+  previewControlsEl.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:8px;border:1px solid var(--ed-border);border-radius:4px;flex-shrink:0;';
   previewArea.appendChild(previewControlsEl);
 
   // Computed synth waveform preview
   synthCanvas = document.createElement('canvas');
   synthCanvas.width = 800;
   synthCanvas.height = 120;
-  synthCanvas.style.cssText = 'width:100%;flex:1;min-height:40px;margin-top:8px;border:1px solid #5a4a30;border-radius:4px;background:#060d18;';
+  synthCanvas.style.cssText = 'width:100%;flex:1;min-height:40px;margin-top:8px;border:1px solid var(--ed-border);border-radius:4px;background:var(--ed-bg-app);';
   synthCtx = synthCanvas.getContext('2d');
   previewArea.appendChild(synthCanvas);
 
@@ -150,7 +150,7 @@ function buildUI() {
   waveformCanvas = document.createElement('canvas');
   waveformCanvas.width = 600;
   waveformCanvas.height = 60;
-  waveformCanvas.style.cssText = 'width:100%;height:50px;flex-shrink:0;margin-top:8px;border:1px solid #5a4a30;border-radius:4px;background:#060d18;';
+  waveformCanvas.style.cssText = 'width:100%;height:50px;flex-shrink:0;margin-top:8px;border:1px solid var(--ed-border);border-radius:4px;background:var(--ed-bg-app);';
   waveformCtx = waveformCanvas.getContext('2d');
   previewArea.appendChild(waveformCanvas);
   startWaveformLoop();
@@ -232,7 +232,7 @@ function selectSound(id) {
 function buildPreviewControls() {
   previewControlsEl.innerHTML = '';
   if (!selectedId) {
-    previewControlsEl.innerHTML = '<span style="color:#7a6a4a">Select a sound to preview</span>';
+    previewControlsEl.innerHTML = '<span style="color:var(--ed-muted)">Select a sound to preview</span>';
     return;
   }
 
@@ -634,13 +634,13 @@ function restartLoopSeamlessly() {
 function buildPropertyPanel() {
   propsEl.innerHTML = '';
   if (!selectedId) {
-    propsEl.innerHTML = '<div style="color:#7a6a4a;padding:20px">Select a sound from the sidebar</div>';
+    propsEl.innerHTML = '<div style="color:var(--ed-muted);padding:20px">Select a sound from the sidebar</div>';
     return;
   }
 
   const config = workingData[selectedId];
   const title = document.createElement('div');
-  title.style.cssText = 'font-size:16px;font-weight:bold;color:#d4a056;margin-bottom:12px;text-transform:uppercase;letter-spacing:1px;';
+  title.style.cssText = 'font-size:16px;font-weight:bold;color:var(--ed-accent);margin-bottom:12px;text-transform:uppercase;letter-spacing:1px;';
   title.textContent = selectedId;
   propsEl.appendChild(title);
 

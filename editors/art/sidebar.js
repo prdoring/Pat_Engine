@@ -20,21 +20,21 @@ export function buildSidebar() {
 
   // Top toolbar: create a new collection (folder).
   const topBar = document.createElement('div');
-  topBar.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:4px;padding:2px 0 4px;border-bottom:1px solid #2a2a3a;margin-bottom:4px;';
+  topBar.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:4px;padding:2px 0 4px;border-bottom:1px solid var(--ed-border-subtle);margin-bottom:4px;';
   const collapseBtn = document.createElement('button');
   collapseBtn.textContent = '‹';
   collapseBtn.title = 'Collapse collections sidebar';
-  collapseBtn.style.cssText = 'padding:0 5px;font-size:13px;line-height:1;color:#7a6a4a;background:transparent;border:1px solid #3a3a4a;border-radius:3px;cursor:pointer;';
+  collapseBtn.style.cssText = 'padding:0 5px;font-size:13px;line-height:1;color:var(--ed-muted);background:transparent;border:1px solid var(--ed-border-subtle2);border-radius:3px;cursor:pointer;';
   collapseBtn.addEventListener('click', () => ctx.toggleSidebar?.(true));
   topBar.appendChild(collapseBtn);
   const topLabel = document.createElement('span');
   topLabel.textContent = 'COLLECTIONS';
-  topLabel.style.cssText = 'color:#7a6a4a;font-size:10px;font-weight:bold;letter-spacing:0.5px;flex:1;';
+  topLabel.style.cssText = 'color:var(--ed-muted);font-size:10px;font-weight:bold;letter-spacing:0.5px;flex:1;';
   topBar.appendChild(topLabel);
   const addColBtn = document.createElement('button');
   addColBtn.textContent = '+ Folder';
   addColBtn.title = 'Create a new art collection';
-  addColBtn.style.cssText = 'padding:1px 6px;font-size:10px;color:#d4a056;background:#241c10;border:1px solid #5a4a30;border-radius:3px;cursor:pointer;';
+  addColBtn.style.cssText = 'padding:1px 6px;font-size:10px;color:var(--ed-accent);background:var(--ed-btn-warm);border:1px solid var(--ed-border);border-radius:3px;cursor:pointer;';
   addColBtn.addEventListener('click', handleNewCollection);
   topBar.appendChild(addColBtn);
   ctx.sidebarEl.appendChild(topBar);
@@ -71,7 +71,7 @@ function addSidebarSection(parent, col, assets) {
   section.style.cssText = 'margin-bottom:8px;';
 
   const header = document.createElement('div');
-  header.style.cssText = 'display:flex;align-items:center;gap:6px;color:#d4a056;font-size:11px;font-weight:bold;padding:4px 0;border-bottom:1px solid #2a2a3a;margin-bottom:2px;';
+  header.style.cssText = 'display:flex;align-items:center;gap:6px;color:var(--ed-accent);font-size:11px;font-weight:bold;padding:4px 0;border-bottom:1px solid var(--ed-border-subtle);margin-bottom:2px;';
   const headerLabel = document.createElement('span');
   headerLabel.textContent = col.label || col.id;
   headerLabel.style.flex = '1';
@@ -80,7 +80,7 @@ function addSidebarSection(parent, col, assets) {
   newBtn.className = 'editor-btn';
   newBtn.textContent = '+ New';
   newBtn.title = `Add a new ${col.label || col.id} asset`;
-  newBtn.style.cssText = 'padding:1px 6px;font-size:10px;color:#d4a056;background:#241c10;border:1px solid #5a4a30;border-radius:3px;cursor:pointer;';
+  newBtn.style.cssText = 'padding:1px 6px;font-size:10px;color:var(--ed-accent);background:var(--ed-btn-warm);border:1px solid var(--ed-border);border-radius:3px;cursor:pointer;';
   newBtn.addEventListener('click', () => handleNewAsset(col));
   header.appendChild(newBtn);
   header.appendChild(actionBtn('✎', 'Rename collection', () => handleRenameCollection(col)));
@@ -97,7 +97,7 @@ function addSidebarSection(parent, col, assets) {
 function buildAssetRow(col, key, asset) {
   const row = document.createElement('div');
   row.className = 'editor-sidebar-item';
-  row.style.cssText = 'display:flex;align-items:center;gap:4px;padding:2px 8px;cursor:pointer;color:#8a7a5a;font-size:11px;border-radius:3px;';
+  row.style.cssText = 'display:flex;align-items:center;gap:4px;padding:2px 8px;cursor:pointer;color:var(--ed-muted2);font-size:11px;border-radius:3px;';
   row.dataset.key = `${col.id}.${key}`;
 
   const isSelected = () => ctx.currentFileKey === col.id && ctx.currentLabel === key;
@@ -121,7 +121,7 @@ function buildAssetRow(col, key, asset) {
   });
   row.addEventListener('mouseenter', () => {
     actions.style.display = 'flex';
-    if (!isSelected()) row.style.background = '#1a1a2a';
+    if (!isSelected()) row.style.background = 'var(--ed-surface)';
   });
   row.addEventListener('mouseleave', () => {
     actions.style.display = 'none';
@@ -135,20 +135,20 @@ function actionBtn(glyph, title, fn) {
   const b = document.createElement('button');
   b.textContent = glyph;
   b.title = title;
-  b.style.cssText = 'background:none;border:none;color:#8a7a5a;cursor:pointer;font-size:11px;padding:0 2px;line-height:1;';
+  b.style.cssText = 'background:none;border:none;color:var(--ed-muted2);cursor:pointer;font-size:11px;padding:0 2px;line-height:1;';
   b.addEventListener('click', (e) => { e.stopPropagation(); fn(); });
-  b.addEventListener('mouseenter', () => { b.style.color = '#d4a056'; });
-  b.addEventListener('mouseleave', () => { b.style.color = '#8a7a5a'; });
+  b.addEventListener('mouseenter', () => { b.style.color = 'var(--ed-accent)'; });
+  b.addEventListener('mouseleave', () => { b.style.color = 'var(--ed-muted2)'; });
   return b;
 }
 
 function selectAssetRow(row) {
   ctx.sidebarEl.querySelectorAll('.editor-sidebar-item').forEach(el => {
     el.style.background = '';
-    el.style.color = '#8a7a5a';
+    el.style.color = 'var(--ed-muted2)';
   });
-  row.style.background = '#2a2a3a';
-  row.style.color = '#d4a056';
+  row.style.background = 'var(--ed-surface-sel)';
+  row.style.color = 'var(--ed-accent)';
 }
 
 function highlightAssetRow(key) {

@@ -215,7 +215,7 @@ export function buildStateOverrides(parent, layer, states, setLayer) {
     if (hasOverride) {
       // Show overridable properties based on primitive type
       const info = document.createElement('div');
-      info.style.cssText = 'color:#7a6a4a;font-size:10px;margin:4px 0;';
+      info.style.cssText = 'color:var(--ed-muted);font-size:10px;margin:4px 0;';
       info.textContent = 'Override fields: color, alpha, shadow, lineWidth';
       stateGroup.body.appendChild(info);
 

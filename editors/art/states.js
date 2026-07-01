@@ -99,17 +99,17 @@ export function buildStateBar() {
   const tdRow = document.createElement('div');
   tdRow.style.cssText = 'display:flex;align-items:center;gap:4px;margin-left:auto;';
   const tdLabel = document.createElement('span');
-  tdLabel.style.cssText = 'color:#7a6a4a;font-size:10px;white-space:nowrap;';
+  tdLabel.style.cssText = 'color:var(--ed-muted);font-size:10px;white-space:nowrap;';
   tdLabel.textContent = 'Transition:';
   tdRow.appendChild(tdLabel);
   const tdSlider = document.createElement('input');
   tdSlider.type = 'range';
   tdSlider.min = '0'; tdSlider.max = '2000'; tdSlider.step = '50';
   tdSlider.value = String(art.transitionDuration || 0);
-  tdSlider.style.cssText = 'width:80px;accent-color:#33ddcc;';
+  tdSlider.style.cssText = 'width:80px;accent-color:var(--ed-info);';
   tdRow.appendChild(tdSlider);
   const tdVal = document.createElement('span');
-  tdVal.style.cssText = 'color:#33ddcc;font-size:10px;min-width:32px;';
+  tdVal.style.cssText = 'color:var(--ed-info);font-size:10px;min-width:32px;';
   tdVal.textContent = `${(art.transitionDuration || 0)}ms`;
   tdRow.appendChild(tdVal);
   tdSlider.addEventListener('input', () => {

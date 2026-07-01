@@ -14,6 +14,7 @@ import {
   getCategory, categoryOrder, PRIMITIVE_TYPES, PRIMITIVE_PROPS, SCATTER_RANGES, NEW_EFFECT_DEFAULTS,
 } from './constants.js';
 import { EffectSimulator } from './simulator.js';
+import { themeColor, themeColorRgba } from '/editors/shared/theme.js';
 import {
   setRebuild, mkBtn, addWidgetTo, buildAnimatableWidget, buildColorWidget,
   buildGradientEditor, buildShadowEditor, buildStateOverrides,
@@ -98,7 +99,7 @@ function buildLayout() {
   topSection.style.cssText = 'flex:0 0 360px;display:flex;flex-direction:column;overflow:hidden;';
 
   previewWrapEl = document.createElement('div');
-  previewWrapEl.style.cssText = 'position:relative;flex:1;overflow:hidden;background:#060d18;';
+  previewWrapEl.style.cssText = 'position:relative;flex:1;overflow:hidden;background:var(--ed-bg-app);';
 
   controlsEl = document.createElement('div');
   controlsEl.style.cssText = 'display:flex;gap:6px;align-items:center;padding:6px 10px;flex-wrap:wrap;flex-shrink:0;';
@@ -142,7 +143,7 @@ function buildSidebar() {
   sidebarEl.innerHTML = '';
 
   const header = document.createElement('div');
-  header.style.cssText = 'padding:8px;border-bottom:1px solid #3a2a10;';
+  header.style.cssText = 'padding:8px;border-bottom:1px solid var(--ed-border-warm);';
 
   const search = document.createElement('input');
   search.type = 'text';
@@ -201,7 +202,7 @@ function rebuildList(filter) {
     catEl.style.cssText = 'margin-top:4px;';
 
     const catHeader = document.createElement('div');
-    catHeader.style.cssText = 'padding:4px 8px;color:#7a6a4a;font-size:10px;text-transform:uppercase;letter-spacing:1px;cursor:pointer;';
+    catHeader.style.cssText = 'padding:4px 8px;color:var(--ed-muted);font-size:10px;text-transform:uppercase;letter-spacing:1px;cursor:pointer;';
     catHeader.textContent = `${cat} (${items.length})`;
     let collapsed = false;
     const itemsContainer = document.createElement('div');
@@ -213,11 +214,11 @@ function rebuildList(filter) {
 
     for (const key of items) {
       const item = document.createElement('div');
-      item.style.cssText = 'padding:4px 12px;cursor:pointer;font-size:12px;color:#b8a878;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+      item.style.cssText = 'padding:4px 12px;cursor:pointer;font-size:12px;color:var(--ed-muted3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
       item.textContent = key;
       if (key === selectedId) {
-        item.style.background = '#2a2210';
-        item.style.color = '#d4a056';
+        item.style.background = 'var(--ed-surface-warm)';
+        item.style.color = 'var(--ed-accent)';
       }
       item.addEventListener('click', () => selectEffect(key));
       itemsContainer.appendChild(item);
@@ -253,11 +254,11 @@ function buildControls() {
   speedSel.addEventListener('change', () => { speedMult = parseFloat(speedSel.value); });
 
   const speedLabel = document.createElement('span');
-  speedLabel.style.cssText = 'color:#7a6a4a;font-size:11px;';
+  speedLabel.style.cssText = 'color:var(--ed-muted);font-size:11px;';
   speedLabel.textContent = 'Speed:';
 
   const scaleLabel = document.createElement('span');
-  scaleLabel.style.cssText = 'color:#7a6a4a;font-size:11px;margin-left:8px;';
+  scaleLabel.style.cssText = 'color:var(--ed-muted);font-size:11px;margin-left:8px;';
   scaleLabel.textContent = 'Scale:';
 
   const scaleInput = document.createElement('input');
@@ -299,7 +300,7 @@ function selectEffect(id) {
 function buildPropsPanel() {
   propsEl.innerHTML = '';
   if (!selectedId || !workingData[selectedId]) {
-    propsEl.innerHTML = '<div style="color:#7a6a4a;padding:20px;text-align:center;">Select an effect to edit</div>';
+    propsEl.innerHTML = '<div style="color:var(--ed-muted);padding:20px;text-align:center;">Select an effect to edit</div>';
     return;
   }
 
@@ -307,13 +308,13 @@ function buildPropsPanel() {
 
   // Name
   const nameEl = document.createElement('div');
-  nameEl.style.cssText = 'color:#d4a056;font-size:14px;margin-bottom:8px;font-weight:bold;';
+  nameEl.style.cssText = 'color:var(--ed-accent);font-size:14px;margin-bottom:8px;font-weight:bold;';
   nameEl.textContent = selectedId;
   propsEl.appendChild(nameEl);
 
   // Type badge
   const typeEl = document.createElement('div');
-  typeEl.style.cssText = 'color:#7a6a4a;font-size:11px;margin-bottom:12px;';
+  typeEl.style.cssText = 'color:var(--ed-muted);font-size:11px;margin-bottom:12px;';
   const lifecycle = def.lifecycle === 'persistent' ? ' (persistent)' : '';
   typeEl.textContent = `Type: ${def.type}${lifecycle}`;
   propsEl.appendChild(typeEl);
@@ -381,7 +382,7 @@ function buildDebrisBursts(def, parent) {
 
   bursts.forEach((d, i) => {
     const group = document.createElement('div');
-    group.style.cssText = 'border:1px solid #3a2a10;padding:4px;margin:2px 0;';
+    group.style.cssText = 'border:1px solid var(--ed-border-warm);padding:4px;margin:2px 0;';
 
     const fields = [
       { key: 'count', label: 'Count', min: 0, max: 30, step: 1 },
@@ -425,7 +426,7 @@ function buildPhaseTimeline(def) {
 
   // Visual timeline bars
   const timelineEl = document.createElement('div');
-  timelineEl.style.cssText = 'position:relative;height:' + (phases.length * 28 + 4) + 'px;background:#0a0a14;border:1px solid #3a2a10;border-radius:3px;margin-bottom:8px;';
+  timelineEl.style.cssText = 'position:relative;height:' + (phases.length * 28 + 4) + 'px;background:var(--ed-panel-bg);border:1px solid var(--ed-border-warm);border-radius:3px;margin-bottom:8px;';
 
   phases.forEach((phase, i) => {
     const bar = document.createElement('div');
@@ -439,7 +440,7 @@ function buildPhaseTimeline(def) {
     bar.title = `${phase.name} [${phase.start.toFixed(2)} - ${phase.end.toFixed(2)}]`;
 
     const label = document.createElement('span');
-    label.style.cssText = 'font-size:10px;color:#ddd;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none;';
+    label.style.cssText = 'font-size:10px;color:var(--ed-strong);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none;';
     label.textContent = phase.name || `Phase ${i}`;
     bar.appendChild(label);
 
@@ -533,7 +534,7 @@ function buildPhaseProps(def, phaseIdx) {
 
   // ─── Layers ──────────────────────────────────────────────
   const layersHeader = document.createElement('div');
-  layersHeader.style.cssText = 'color:#d4a056;font-size:12px;margin-top:12px;margin-bottom:4px;font-weight:bold;';
+  layersHeader.style.cssText = 'color:var(--ed-accent);font-size:12px;margin-top:12px;margin-bottom:4px;font-weight:bold;';
   layersHeader.textContent = 'Layers';
   propsEl.appendChild(layersHeader);
 
@@ -695,7 +696,7 @@ function buildLegacyProps(def) {
     case 'taperedTrail': buildTaperedTrailProps(def, set); break;
     case 'wiggleBeam': buildWiggleBeamProps(def, set); break;
     default:
-      propsEl.innerHTML += '<div style="color:#7a6a4a;">Unknown VFX type: ' + def.type + '</div>';
+      propsEl.innerHTML += '<div style="color:var(--ed-muted);">Unknown VFX type: ' + def.type + '</div>';
   }
 }
 
@@ -738,7 +739,7 @@ function buildAnchorsList(def, set, parent) {
     yIn.type = 'number'; yIn.step = '0.05'; yIn.value = a.y;
     yIn.className = 'editor-num-input'; yIn.style.width = '55px';
     const lbl = document.createElement('span');
-    lbl.style.cssText = 'color:#7a6a4a;font-size:10px;';
+    lbl.style.cssText = 'color:var(--ed-muted);font-size:10px;';
     lbl.textContent = `#${i}`;
     const rmBtn = document.createElement('button');
     rmBtn.className = 'editor-btn editor-btn-danger';
@@ -841,13 +842,13 @@ function startPreviewLoop() {
     const w = previewCanvas.width;
     const h = previewCanvas.height;
 
-    // Clear
+    // Clear (theme-driven — read fresh each frame so a theme switch just adopts)
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = '#060d18';
+    ctx.fillStyle = themeColor('--ed-bg-app');
     ctx.fillRect(0, 0, w, h);
 
     // Subtle grid
-    ctx.strokeStyle = 'rgba(212,160,86,0.06)';
+    ctx.strokeStyle = themeColorRgba('--ed-accent-rgb', 0.06);
     ctx.lineWidth = 0.5;
     const step = 20;
     for (let x = w / 2 % step; x < w; x += step) {
@@ -857,7 +858,7 @@ function startPreviewLoop() {
       ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
     }
     // Crosshair axes
-    ctx.strokeStyle = 'rgba(212,160,86,0.15)';
+    ctx.strokeStyle = themeColorRgba('--ed-accent-rgb', 0.15);
     ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(w / 2, 0); ctx.lineTo(w / 2, h); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(0, h / 2); ctx.lineTo(w, h / 2); ctx.stroke();
@@ -880,9 +881,9 @@ function startPreviewLoop() {
         // Progress bar for one-shot effects
         if (def.lifecycle !== 'persistent' && progress !== null) {
           ctx.save();
-          ctx.fillStyle = 'rgba(212,160,86,0.3)';
+          ctx.fillStyle = themeColorRgba('--ed-accent-rgb', 0.3);
           ctx.fillRect(10, h - 8, (w - 20) * progress, 4);
-          ctx.strokeStyle = 'rgba(212,160,86,0.15)';
+          ctx.strokeStyle = themeColorRgba('--ed-accent-rgb', 0.15);
           ctx.strokeRect(10, h - 8, w - 20, 4);
           ctx.restore();
         }

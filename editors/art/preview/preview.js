@@ -166,7 +166,7 @@ export function buildControls() {
 function addControlLabel(text) {
   const lbl = document.createElement('span');
   lbl.className = 'zoom-label';
-  lbl.style.cssText = 'color:#7a6a4a;font-size:11px;';
+  lbl.style.cssText = 'color:var(--ed-muted);font-size:11px;';
   lbl.textContent = text;
   ctx.controlsEl.appendChild(lbl);
 }

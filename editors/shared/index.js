@@ -4,6 +4,9 @@
 
 export { SaveManager } from './saveManager.js';
 export { PreviewCanvas, EditorPreviewCamera, createResizer } from './canvas.js';
+export {
+  THEMES, current, applyTheme, onThemeChange, initThemePicker, themeColor, themeColorRgba,
+} from './theme.js';
 export { loadManifest, getManifest } from './manifest.js';
 export {
   NumberSlider, RangeInput, RandomizableSlider, ColorInput, Select, TextInput,

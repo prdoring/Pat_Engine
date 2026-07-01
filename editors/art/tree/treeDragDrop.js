@@ -101,7 +101,7 @@ function updateDropIndicator(clientY, scrollEl) {
       top: ${target.rect.top - scrollRect.top + scrollEl.scrollTop}px;
       width: ${target.rect.width}px;
       height: ${target.rect.height}px;
-      border: 1px solid #33ddcc;
+      border: 1px solid var(--ed-info);
       border-radius: 3px;
       pointer-events: none;
     `;
@@ -116,7 +116,7 @@ function updateDropIndicator(clientY, scrollEl) {
       right: 4px;
       top: ${y}px;
       height: 2px;
-      background: #33ddcc;
+      background: var(--ed-info);
       border-radius: 1px;
       pointer-events: none;
     `;

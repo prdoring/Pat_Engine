@@ -32,7 +32,7 @@ export class SaveManager {
     this._onDirtyChange.forEach(fn => fn(this._dirty));
     if (this._statusEl) {
       this._statusEl.textContent = this._dirty ? 'Unsaved' : 'Saved';
-      this._statusEl.style.color = this._dirty ? '#cc4422' : '#33aa88';
+      this._statusEl.style.color = this._dirty ? 'var(--ed-danger)' : 'var(--ed-success)';
     }
     if (this._saveBtn) {
       this._saveBtn.style.opacity = this._dirty ? '1' : '0.4';
@@ -65,7 +65,7 @@ export class SaveManager {
     const el = document.createElement('span');
     el.className = 'editor-save-status';
     el.textContent = this._dirty ? 'Unsaved' : 'Saved';
-    el.style.color = this._dirty ? '#cc4422' : '#33aa88';
+    el.style.color = this._dirty ? 'var(--ed-danger)' : 'var(--ed-success)';
     this._statusEl = el;
     return el;
   }

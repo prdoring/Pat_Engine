@@ -140,10 +140,10 @@ function buildUI() {
   // Top bar: save row
   const topBar = document.createElement('div');
   topBar.className = 'editor-top-bar';
-  topBar.style.cssText = 'display:flex;align-items:center;padding:6px 12px;border-bottom:1px solid #2a2a3a;gap:12px;flex-shrink:0;';
+  topBar.style.cssText = 'display:flex;align-items:center;padding:6px 12px;border-bottom:1px solid var(--ed-border-subtle);gap:12px;flex-shrink:0;';
 
   const title = document.createElement('span');
-  title.style.cssText = 'color:#d4a056;font-size:12px;font-weight:bold;';
+  title.style.cssText = 'color:var(--ed-accent);font-size:12px;font-weight:bold;';
   title.textContent = 'ART EDITOR';
   topBar.appendChild(title);
 
@@ -188,7 +188,7 @@ function buildUI() {
   // Thin rail shown in place of the collapsed collections sidebar; click to reopen.
   const sidebarRail = document.createElement('div');
   sidebarRail.className = 'editor-collapse-rail';
-  sidebarRail.style.cssText = 'display:none;width:16px;flex-shrink:0;cursor:pointer;background:rgba(8,14,24,0.92);border-right:1px solid #2a2a3a;color:#7a6a4a;font-size:11px;align-items:flex-start;justify-content:center;padding-top:8px;writing-mode:vertical-rl;';
+  sidebarRail.style.cssText = 'display:none;width:16px;flex-shrink:0;cursor:pointer;background:rgba(var(--ed-panel-rgb),0.92);border-right:1px solid var(--ed-border-subtle);color:var(--ed-muted);font-size:11px;align-items:flex-start;justify-content:center;padding-top:8px;writing-mode:vertical-rl;';
   sidebarRail.textContent = '▸ Collections';
   sidebarRail.title = 'Show collections';
   main.appendChild(sidebarRail);
@@ -264,14 +264,14 @@ function buildUI() {
   focusBtn.el.addEventListener('click', () => {
     focusMode = !focusMode;
     for (const el of sidePanels) el.style.display = focusMode ? 'none' : '';
-    focusBtn.el.style.color = focusMode ? '#d4a056' : '';
+    focusBtn.el.style.color = focusMode ? 'var(--ed-accent)' : '';
   });
 
   ctx.container.appendChild(main);
 
   // Build preview canvas
   ctx.preview = new PreviewCanvas(ctx.previewArea, {
-    background: '#060d18',
+    background: '--ed-bg-app',
     grid: ctx.showGrid,
     pannable: true,
     zoomable: true,
@@ -305,11 +305,11 @@ function rebuildSaveRow() {
       if (!(await modalConfirm('Revert all unsaved changes? This will reload from disk.', { title: 'Revert all', confirmLabel: 'Revert', danger: true }))) return;
       await revertAll();
     }, 'subtle');
-    revertBtn.el.style.cssText += 'color:#cc4422;border-color:#cc442244;';
+    revertBtn.el.style.cssText += 'color:var(--ed-danger);border-color:rgba(var(--ed-danger-rgb),0.27);';
     ctx.saveRow.appendChild(revertBtn.el);
   }
   const indicator = document.createElement('span');
-  indicator.style.cssText = 'color:#5a4a30;font-size:11px;';
+  indicator.style.cssText = 'color:var(--ed-faint);font-size:11px;';
   const dirty = Object.entries(ctx.saveManagers).filter(([, s]) => s.isDirty()).map(([k]) => k);
   indicator.textContent = dirty.length ? `Unsaved: ${dirty.join(', ')}` : '';
   ctx.saveRow.appendChild(indicator);

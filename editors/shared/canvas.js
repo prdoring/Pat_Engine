@@ -4,13 +4,15 @@
 // createResizer: a draggable divider between flex siblings.
 // Self-contained (browser DOM / ResizeObserver only).
 
+import { themeColor, themeColorRgba, onThemeChange } from './theme.js';
+
 // ─── PreviewCanvas ─────────────────────────────────────────────────────────
 
 export class PreviewCanvas {
   constructor(container, options = {}) {
     const {
       width = 400, height = 300,
-      background = '#060d18',
+      background = '--ed-bg-app',    // a `--ed-*` token name (theme-aware) or a literal color
       grid = false,
       pannable = true,
       zoomable = true,
@@ -29,6 +31,7 @@ export class PreviewCanvas {
     this._onPanCbs = [];
     this._onZoomCbs = [];
     this._resizeObserver = null;
+    this._themeUnsub = null;
 
     this._canvas = document.createElement('canvas');
     this._canvas.className = 'editor-preview-canvas';
@@ -98,7 +101,7 @@ export class PreviewCanvas {
   clear() {
     const { width, height } = this._canvas;
     this._ctx.setTransform(1, 0, 0, 1, 0, 0);
-    this._ctx.fillStyle = this._bg;
+    this._ctx.fillStyle = (typeof this._bg === 'string' && this._bg.startsWith('--')) ? themeColor(this._bg) : this._bg;
     this._ctx.fillRect(0, 0, width, height);
   }
 
@@ -109,7 +112,7 @@ export class PreviewCanvas {
     this._ctx.scale(this._zoom, this._zoom);
   }
 
-  drawGrid(step = 10, color = 'rgba(212,160,86,0.08)') {
+  drawGrid(step = 10, color = null) {
     if (!this._showGrid) return;
     const ctx = this._ctx;
     const { width, height } = this._canvas;
@@ -117,7 +120,7 @@ export class PreviewCanvas {
     if (scaledStep < 4) return;
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.strokeStyle = color;
+    ctx.strokeStyle = color || themeColorRgba('--ed-accent-rgb', 0.08);
     ctx.lineWidth = 0.5;
     const ox = (width / 2 + this._panX) % scaledStep;
     const oy = (height / 2 + this._panY) % scaledStep;
@@ -128,7 +131,7 @@ export class PreviewCanvas {
       ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y); ctx.stroke();
     }
     // Draw axes
-    ctx.strokeStyle = 'rgba(212,160,86,0.2)';
+    ctx.strokeStyle = themeColorRgba('--ed-accent-rgb', 0.2);
     ctx.lineWidth = 1;
     const cx = width / 2 + this._panX;
     const cy = height / 2 + this._panY;
@@ -165,8 +168,12 @@ export class PreviewCanvas {
   onPan(fn) { this._onPanCbs.push(fn); }
   onZoom(fn) { this._onZoomCbs.push(fn); }
 
+  /** Re-run `fn` whenever the editor theme changes, so static (non-rAF) previews recolor. */
+  onThemeRedraw(fn) { this._themeUnsub = onThemeChange(fn); }
+
   destroy() {
     if (this._resizeObserver) this._resizeObserver.disconnect();
+    if (this._themeUnsub) this._themeUnsub();
     this._canvas.remove();
   }
 }

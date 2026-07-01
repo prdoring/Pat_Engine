@@ -12,6 +12,7 @@ import {
   addNote, moveNote, resizeNote, deleteNote, setVelocity, loopBeats, repeatGhosts, PITCH_MIN, PITCH_MAX,
 } from './model/midiModel.js';
 import { isModalOpen } from '/editors/shared/index.js';
+import { themeColor, themeColorRgba, onThemeChange } from '/editors/shared/theme.js';
 
 const GUTTER = 44;  // piano-key gutter width (px)
 const MINI = 16;    // top minimap height
@@ -74,37 +75,37 @@ export function createPianoRoll(container, { onEdit = () => {}, onEditCommit = (
     const ghosts = repeat ? repeatGhosts(pattern, lb(), song.beatsPerBar ?? 4) : [];
     g.setTransform(dpr(), 0, 0, dpr(), 0, 0);
     g.clearRect(0, 0, w, h);
-    g.fillStyle = '#0e0a05'; g.fillRect(0, 0, w, h);
+    g.fillStyle = themeColor('--ed-pr-bg'); g.fillRect(0, 0, w, h);
 
     // minimap (whole-loop overview)
-    g.fillStyle = '#080502'; g.fillRect(0, 0, w, MINI);
-    g.fillStyle = '#5a4a30'; g.font = '8px monospace'; g.textBaseline = 'middle'; g.fillText('map', 6, MINI / 2);
-    for (const n of ghosts) { g.fillStyle = '#39301c'; g.fillRect(miniX(n.beat), 3, 1.5, MINI - 6); }   // ghost density
-    for (const n of pattern) { g.fillStyle = '#6b5a36'; g.fillRect(miniX(n.beat), 3, 1.5, MINI - 6); } // note density
+    g.fillStyle = themeColor('--ed-pr-mini-bg'); g.fillRect(0, 0, w, MINI);
+    g.fillStyle = themeColor('--ed-pr-label'); g.font = '8px monospace'; g.textBaseline = 'middle'; g.fillText('map', 6, MINI / 2);
+    for (const n of ghosts) { g.fillStyle = themeColor('--ed-pr-ghost'); g.fillRect(miniX(n.beat), 3, 1.5, MINI - 6); }   // ghost density
+    for (const n of pattern) { g.fillStyle = themeColor('--ed-pr-note-density'); g.fillRect(miniX(n.beat), 3, 1.5, MINI - 6); } // note density
     // visible-window box
     const vx0 = miniX(scrollX / pxPerBeat), vx1 = miniX((scrollX + (w - GUTTER)) / pxPerBeat);
-    g.strokeStyle = '#c9a227'; g.lineWidth = 1; g.strokeRect(vx0 + 0.5, 1.5, Math.max(2, vx1 - vx0) - 1, MINI - 3);
-    g.fillStyle = 'rgba(201,162,39,0.12)'; g.fillRect(vx0, 1, Math.max(2, vx1 - vx0), MINI - 2);
+    g.strokeStyle = themeColor('--ed-me-accent'); g.lineWidth = 1; g.strokeRect(vx0 + 0.5, 1.5, Math.max(2, vx1 - vx0) - 1, MINI - 3);
+    g.fillStyle = themeColorRgba('--ed-me-accent-rgb', 0.12); g.fillRect(vx0, 1, Math.max(2, vx1 - vx0), MINI - 2);
 
     // pitch rows
     g.save(); g.beginPath(); g.rect(GUTTER, TOP, w - GUTTER, mainH()); g.clip();
     for (let m = PITCH_MIN; m <= PITCH_MAX; m++) {
       const y = yTop(m);
       if (y > TOP + mainH() || y + ROW_H < TOP) continue;
-      g.fillStyle = BLACK.has(((m % 12) + 12) % 12) ? '#120d07' : '#17110a';
+      g.fillStyle = BLACK.has(((m % 12) + 12) % 12) ? themeColor('--ed-pr-row-black') : themeColor('--ed-pr-row-white');
       g.fillRect(GUTTER, y, w - GUTTER, ROW_H);
-      g.strokeStyle = '#241a0e'; g.lineWidth = 1; g.beginPath(); g.moveTo(GUTTER, y + 0.5); g.lineTo(w, y + 0.5); g.stroke();
+      g.strokeStyle = themeColor('--ed-pr-line'); g.lineWidth = 1; g.beginPath(); g.moveTo(GUTTER, y + 0.5); g.lineTo(w, y + 0.5); g.stroke();
     }
     const gr = song.grid > 0 ? song.grid : 0.25, bpb = song.beatsPerBar ?? 4;
     for (let b = 0; b <= lb() + 1e-6; b += gr) {
       const x = xAt(b); if (x < GUTTER - 1 || x > w) continue;
-      g.strokeStyle = Math.abs(b % bpb) < 1e-6 ? '#5a4a30' : Math.abs(b % 1) < 1e-6 ? '#3a2f1c' : '#241a0e';
+      g.strokeStyle = Math.abs(b % bpb) < 1e-6 ? themeColor('--ed-pr-label') : Math.abs(b % 1) < 1e-6 ? themeColor('--ed-modal-border2') : themeColor('--ed-pr-line');
       g.lineWidth = 1; g.beginPath(); g.moveTo(Math.floor(x) + 0.5, TOP); g.lineTo(Math.floor(x) + 0.5, TOP + mainH()); g.stroke();
     }
     for (const n of ghosts) { // tiled repeats — dim, no outline, behind the editable notes
       const x = xAt(n.beat), y = yTop(n.midi), nw = Math.max(2, n.len * pxPerBeat);
       if (x + nw < GUTTER || x > w || y > TOP + mainH() || y + ROW_H < TOP) continue;
-      g.fillStyle = 'rgba(201,162,39,0.16)';
+      g.fillStyle = themeColorRgba('--ed-me-accent-rgb', 0.16);
       g.fillRect(x, y + 1, nw, ROW_H - 2);
     }
     for (const n of pattern) {
@@ -112,43 +113,43 @@ export function createPianoRoll(container, { onEdit = () => {}, onEditCommit = (
       if (x + nw < GUTTER || x > w || y > TOP + mainH() || y + ROW_H < TOP) continue;
       g.fillStyle = `hsl(42 75% ${32 + Math.round((n.vel ?? 0.8) * 38)}%)`;
       g.fillRect(x, y + 1, nw, ROW_H - 2);
-      g.strokeStyle = n === selected ? '#f4e2a0' : '#1a1206'; g.lineWidth = n === selected ? 2 : 1;
+      g.strokeStyle = n === selected ? themeColor('--ed-pr-note-sel') : themeColor('--ed-pr-note-stroke'); g.lineWidth = n === selected ? 2 : 1;
       g.strokeRect(x + 0.5, y + 1.5, nw - 1, ROW_H - 3);
     }
     g.restore();
 
     // ruler
     g.save(); g.beginPath(); g.rect(GUTTER, MINI, w - GUTTER, RULER); g.clip();
-    g.fillStyle = '#120d07'; g.fillRect(GUTTER, MINI, w - GUTTER, RULER);
+    g.fillStyle = themeColor('--ed-pr-row-black'); g.fillRect(GUTTER, MINI, w - GUTTER, RULER);
     g.font = '10px monospace'; g.textBaseline = 'middle';
     for (let bar = 0; bar < (song.bars ?? 4); bar++) {
       const x = xAt(bar * bpb);
-      g.fillStyle = '#5a4a30'; g.fillRect(Math.floor(x), MINI, 1, RULER);
-      g.fillStyle = '#b59a64'; g.fillText(String(bar + 1), x + 4, MINI + RULER / 2);
+      g.fillStyle = themeColor('--ed-pr-label'); g.fillRect(Math.floor(x), MINI, 1, RULER);
+      g.fillStyle = themeColor('--ed-pr-barnum'); g.fillText(String(bar + 1), x + 4, MINI + RULER / 2);
     }
     g.restore();
 
     // piano-key gutter
     g.save(); g.beginPath(); g.rect(0, TOP, GUTTER, mainH()); g.clip();
-    g.fillStyle = '#0a0703'; g.fillRect(0, TOP, GUTTER, mainH());
+    g.fillStyle = themeColor('--ed-pr-gutter-bg'); g.fillRect(0, TOP, GUTTER, mainH());
     for (let m = PITCH_MIN; m <= PITCH_MAX; m++) {
       const y = yTop(m); if (y > TOP + mainH() || y + ROW_H < TOP) continue;
-      g.fillStyle = BLACK.has(((m % 12) + 12) % 12) ? '#1a130a' : '#cdbb8e';
+      g.fillStyle = BLACK.has(((m % 12) + 12) % 12) ? themeColor('--ed-pr-keylabel-bg') : themeColor('--ed-pr-keylabel');
       g.fillRect(0, y, GUTTER - 1, ROW_H - 0.5);
-      if (m % 12 === 0) { g.fillStyle = '#5a4a30'; g.font = '9px monospace'; g.fillText('C' + (Math.floor(m / 12) - 1), 3, y + ROW_H / 2); }
+      if (m % 12 === 0) { g.fillStyle = themeColor('--ed-pr-label'); g.font = '9px monospace'; g.fillText('C' + (Math.floor(m / 12) - 1), 3, y + ROW_H / 2); }
     }
     g.restore();
 
     // velocity lane
     const vy = TOP + mainH();
-    g.fillStyle = '#0a0703'; g.fillRect(0, vy, w, VEL_H);
-    g.strokeStyle = '#4a3c24'; g.beginPath(); g.moveTo(0, vy + 0.5); g.lineTo(w, vy + 0.5); g.stroke();
-    g.fillStyle = '#7a6a4a'; g.font = '9px monospace'; g.textBaseline = 'top'; g.fillText('velocity — drag here, or Alt-drag a note', GUTTER + 4, vy + 3);
+    g.fillStyle = themeColor('--ed-pr-gutter-bg'); g.fillRect(0, vy, w, VEL_H);
+    g.strokeStyle = themeColor('--ed-border-warm2'); g.beginPath(); g.moveTo(0, vy + 0.5); g.lineTo(w, vy + 0.5); g.stroke();
+    g.fillStyle = themeColor('--ed-muted'); g.font = '9px monospace'; g.textBaseline = 'top'; g.fillText('velocity — drag here, or Alt-drag a note', GUTTER + 4, vy + 3);
     g.save(); g.beginPath(); g.rect(GUTTER, vy, w - GUTTER, VEL_H); g.clip();
     for (const n of pattern) {
       const x = xAt(n.beat); if (x < GUTTER || x > w) continue;
       const barH = (VEL_H - 12) * (n.vel ?? 0.8);
-      g.fillStyle = n === selected ? '#f4e2a0' : '#c9a227';
+      g.fillStyle = n === selected ? themeColor('--ed-pr-note-sel') : themeColor('--ed-me-accent');
       g.fillRect(x, vy + (VEL_H - 6) - barH, Math.max(2, Math.min(6, pxPerBeat * 0.4)), barH);
     }
     g.restore();
@@ -163,10 +164,10 @@ export function createPianoRoll(container, { onEdit = () => {}, onEditCommit = (
     // minimap playhead (always shows global position, even when off-screen in the grid)
     if (ph != null) {
       const mx = miniX(ph * lb());
-      ctx.strokeStyle = '#e07b3a'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(mx, 0); ctx.lineTo(mx, MINI); ctx.stroke();
+      ctx.strokeStyle = themeColor('--ed-pr-playhead'); ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(mx, 0); ctx.lineTo(mx, MINI); ctx.stroke();
       // grid playhead (clipped to the visible window)
       const x = xAt(ph * lb());
-      if (x >= GUTTER && x <= cssW()) { ctx.strokeStyle = '#e07b3a'; ctx.beginPath(); ctx.moveTo(x, MINI); ctx.lineTo(x, TOP + mainH() + VEL_H); ctx.stroke(); }
+      if (x >= GUTTER && x <= cssW()) { ctx.strokeStyle = themeColor('--ed-pr-playhead'); ctx.beginPath(); ctx.moveTo(x, MINI); ctx.lineTo(x, TOP + mainH() + VEL_H); ctx.stroke(); }
     }
   }
 
@@ -279,6 +280,8 @@ export function createPianoRoll(container, { onEdit = () => {}, onEditCommit = (
   function loop() { raf = requestAnimationFrame(loop); if (playing) paint(); }
   requestAnimationFrame(resize);
 
+  const _themeUnsub = onThemeChange(draw);
+
   return {
     el: wrap,
     setPattern(notes, songObj) { pattern = notes || []; if (songObj) song = songObj; selected = null; recomputePx(); clampX(); centerOnPattern(); draw(); },
@@ -286,7 +289,7 @@ export function createPianoRoll(container, { onEdit = () => {}, onEditCommit = (
     setRepeat(on) { const v = !!on; if (v !== repeat) { repeat = v; draw(); } },
     setPlaying(on) { playing = on; if (on && !raf) loop(); if (!on && raf) { cancelAnimationFrame(raf); raf = null; paint(); } else if (!on) paint(); },
     redraw: draw,
-    destroy() { if (raf) cancelAnimationFrame(raf); ro.disconnect(); window.removeEventListener('keydown', onKey); window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); wrap.remove(); },
+    destroy() { if (raf) cancelAnimationFrame(raf); ro.disconnect(); _themeUnsub(); window.removeEventListener('keydown', onKey); window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); wrap.remove(); },
   };
 }
 
@@ -297,7 +300,7 @@ function injectStyle() {
   if (document.getElementById('pr-style')) return;
   const s = document.createElement('style'); s.id = 'pr-style';
   s.textContent = `
-  .pr-wrap{position:relative;width:100%;height:100%;min-height:260px;background:#0e0a05;border:1px solid #4a3c24;border-radius:6px;overflow:hidden}
+  .pr-wrap{position:relative;width:100%;height:100%;min-height:260px;background:var(--ed-pr-bg);border:1px solid var(--ed-border-warm2);border-radius:6px;overflow:hidden}
   .pr-canvas{display:block;cursor:crosshair}
   `;
   document.head.appendChild(s);

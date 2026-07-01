@@ -18,6 +18,7 @@ import {
   makeLoopable, clipKeys, listPartRows, movePose, deletePose, keyPose, getPropValue,
 } from './model/keyframes.js';
 import { sampleTrack } from '/engine/render/interp.js';
+import { themeColor, onThemeChange } from '/editors/shared/theme.js';
 
 const GUTTER = 150;  // left label column (wider — holds part names + caret)
 const RULER = 20;    // time ruler height
@@ -200,28 +201,28 @@ export function createArtTimeline(container) {
     const w = W(), h = H();
     cx.setTransform(dpr(), 0, 0, dpr(), 0, 0);
     cx.clearRect(0, 0, w, h);
-    cx.fillStyle = '#0b1018'; cx.fillRect(0, 0, w, h);
+    cx.fillStyle = themeColor('--ed-kf-bg'); cx.fillRect(0, 0, w, h);
 
     const a = art();
     if (!a) return;
     const ck = clipKey();
     const clip = clipMeta(a, ck);
     if (!clip) {
-      cx.fillStyle = '#5a6a80'; cx.font = '11px monospace'; cx.textBaseline = 'middle';
+      cx.fillStyle = themeColor('--ed-kf-text-empty'); cx.font = '11px monospace'; cx.textBaseline = 'middle';
       cx.fillText('No clip — click "+ Animate this" above.', GUTTER + 8, RULER + 16);
       return;
     }
     const dur = clip.duration;
 
     // ruler
-    cx.fillStyle = '#11161f'; cx.fillRect(GUTTER, 0, w - GUTTER, RULER);
+    cx.fillStyle = themeColor('--ed-kf-field-bg'); cx.fillRect(GUTTER, 0, w - GUTTER, RULER);
     cx.font = '9px monospace'; cx.textBaseline = 'middle'; cx.textAlign = 'left';
     const stepMs = niceStep(dur, (w - GUTTER));
     for (let t = 0; t <= dur + 1e-6; t += stepMs) {
       const x = xAt(t); if (x < GUTTER - 1 || x > w) continue;
-      cx.strokeStyle = '#283242'; cx.lineWidth = 1;
+      cx.strokeStyle = themeColor('--ed-kf-grid'); cx.lineWidth = 1;
       cx.beginPath(); cx.moveTo(Math.floor(x) + 0.5, 0); cx.lineTo(Math.floor(x) + 0.5, h); cx.stroke();
-      cx.fillStyle = '#7a8aa0'; cx.fillText((t / 1000).toFixed(2) + 's', x + 3, RULER / 2);
+      cx.fillStyle = themeColor('--ed-kf-text'); cx.fillText((t / 1000).toFixed(2) + 's', x + 3, RULER / 2);
     }
 
     // rows (clipped below the pinned ruler; scrolled by scrollY)
@@ -235,7 +236,7 @@ export function createArtTimeline(container) {
       const indentX = 6 + row.depth * INDENT;
 
       // row background
-      cx.fillStyle = selShape ? '#1c2636' : (isPart ? (i % 2 ? '#0d131c' : '#0b1018') : '#090d14');
+      cx.fillStyle = selShape ? themeColor('--ed-kf-row-sel') : (isPart ? (i % 2 ? themeColor('--ed-kf-row-part') : themeColor('--ed-kf-bg')) : themeColor('--ed-kf-row'));
       cx.fillRect(0, y, w, ROW_H);
 
       // gutter label
@@ -243,20 +244,20 @@ export function createArtTimeline(container) {
       if (isPart) {
         // expand caret
         if (row.propCount > 0) {
-          cx.fillStyle = '#5f7088';
+          cx.fillStyle = themeColor('--ed-kf-text-dim');
           cx.fillText(expanded.has(row.path.join(',')) ? '▾' : '▸', indentX, y + ROW_H / 2);
         }
         const dim = row.selectedEmpty;
-        cx.fillStyle = dim ? '#4a5a70' : (selShape ? '#d4a056' : '#9fb0c4');
+        cx.fillStyle = dim ? themeColor('--ed-kf-text-faint') : (selShape ? themeColor('--ed-accent') : themeColor('--ed-kf-text-strong'));
         cx.fillText(trunc(row.name, Math.max(6, 16 - row.depth * 2)), indentX + 12, y + ROW_H / 2);
-        if (dim) { cx.fillStyle = '#33506a'; cx.fillText('(no keys)', GUTTER - 56, y + ROW_H / 2); }
+        if (dim) { cx.fillStyle = themeColor('--ed-kf-nokeys'); cx.fillText('(no keys)', GUTTER - 56, y + ROW_H / 2); }
       } else {
-        cx.fillStyle = '#7a8aa0';
+        cx.fillStyle = themeColor('--ed-kf-text');
         cx.fillText('· ' + trunc(row.prop, Math.max(6, 16 - row.depth)), indentX + 4, y + ROW_H / 2);
       }
 
       // baseline
-      cx.strokeStyle = '#1a2230'; cx.beginPath(); cx.moveTo(GUTTER, y + ROW_H - 0.5); cx.lineTo(w, y + ROW_H - 0.5); cx.stroke();
+      cx.strokeStyle = themeColor('--ed-kf-border-dim'); cx.beginPath(); cx.moveTo(GUTTER, y + ROW_H - 0.5); cx.lineTo(w, y + ROW_H - 0.5); cx.stroke();
 
       // diamonds
       const cy = y + ROW_H / 2;
@@ -265,14 +266,14 @@ export function createArtTimeline(container) {
           const x = xAt(t); if (x < GUTTER - HIT || x > w + HIT) continue;
           const sel = ctx.selectedKeyframe && ctx.selectedKeyframe.pose
             && samePath(ctx.selectedKeyframe.path, row.path) && Math.abs((ctx.selectedKeyframe.t ?? -1) - t) <= 1;
-          diamond(cx, x, cy, sel ? 6 : 5, sel ? '#ffe08a' : '#d4a056', sel ? '#fff' : '#7a5a28');
+          diamond(cx, x, cy, sel ? 6 : 5, sel ? themeColor('--ed-kf-key-sel') : themeColor('--ed-accent'), sel ? themeColor('--ed-kf-key-hi') : themeColor('--ed-kf-key-stroke'));
         }
       } else {
         for (const key of row.keys) {
           const x = xAt(key.t); if (x < GUTTER - HIT || x > w + HIT) continue;
           const sel = ctx.selectedKeyframe && ctx.selectedKeyframe.prop === row.prop
             && samePath(ctx.selectedKeyframe.path, row.path) && Math.abs((ctx.selectedKeyframe.t ?? -1) - key.t) <= 1;
-          diamond(cx, x, cy, sel ? 5 : 3.5, sel ? '#ffe08a' : '#b88a44', sel ? '#fff' : '#5a4420');
+          diamond(cx, x, cy, sel ? 5 : 3.5, sel ? themeColor('--ed-kf-key-sel') : themeColor('--ed-kf-key2'), sel ? themeColor('--ed-kf-key-hi') : themeColor('--ed-kf-key2-stroke'));
         }
       }
     });
@@ -281,7 +282,7 @@ export function createArtTimeline(container) {
     // playhead
     const px = xAt(ctx.playhead || 0);
     if (px >= GUTTER - 1 && px <= w) {
-      cx.strokeStyle = '#e07b3a'; cx.lineWidth = 1.5;
+      cx.strokeStyle = themeColor('--ed-kf-playhead'); cx.lineWidth = 1.5;
       cx.beginPath(); cx.moveTo(px, 0); cx.lineTo(px, h); cx.stroke();
     }
 
@@ -291,8 +292,8 @@ export function createArtTimeline(container) {
       const trackH = h - RULER;
       const thumbH = Math.max(18, trackH * (visRowsH() / (rows.length * ROW_H)));
       const thumbY = RULER + (trackH - thumbH) * (scrollY / maxY);
-      cx.fillStyle = '#2c3a4e'; cx.fillRect(w - 4, RULER, 3, trackH);
-      cx.fillStyle = '#5a7090'; cx.fillRect(w - 4, thumbY, 3, thumbH);
+      cx.fillStyle = themeColor('--ed-kf-scroll-track'); cx.fillRect(w - 4, RULER, 3, trackH);
+      cx.fillStyle = themeColor('--ed-kf-scroll-thumb'); cx.fillRect(w - 4, thumbY, 3, thumbH);
     }
   }
 
@@ -544,10 +545,12 @@ export function createArtTimeline(container) {
     canvas.removeEventListener('wheel', onWheel);
     window.removeEventListener('mousemove', onMove);
     window.removeEventListener('mouseup', onUp);
+    _themeUnsub();
     el.remove();
   }
 
   requestAnimationFrame(resize);
+  const _themeUnsub = onThemeChange(() => redraw());
   return { el, refresh, redraw, redrawRows, advance, destroy };
 }
 
@@ -567,21 +570,21 @@ function injectStyle() {
   if (document.getElementById('kf-style')) return;
   const s = document.createElement('style'); s.id = 'kf-style';
   s.textContent = `
-  .kf-wrap{display:flex;flex-direction:column;height:100%;min-height:0;background:#0b1018;border-top:1px solid #2a3a4a}
-  .kf-transport{display:flex;align-items:center;gap:5px;padding:3px 6px;flex-wrap:wrap;flex-shrink:0;border-bottom:1px solid #1a2230}
+  .kf-wrap{display:flex;flex-direction:column;height:100%;min-height:0;background:var(--ed-kf-bg);border-top:1px solid var(--ed-kf-border)}
+  .kf-transport{display:flex;align-items:center;gap:5px;padding:3px 6px;flex-wrap:wrap;flex-shrink:0;border-bottom:1px solid var(--ed-kf-border-dim)}
   .kf-canvas-wrap{position:relative;flex:1 1 auto;min-height:0;overflow:hidden}
   .kf-canvas{display:block;cursor:crosshair}
-  .kf-dur{color:#7a8aa0;font-size:11px;display:inline-flex;align-items:center;gap:3px}
-  .kf-dur input{width:52px;background:#11161f;border:1px solid #2a3a4a;color:#cdd6e4;font-size:11px;padding:1px 4px;border-radius:3px}
-  .kf-unit{color:#5f7088;font-size:10px}
-  .kf-time{color:#7a8aa0;font-size:11px;font-family:monospace}
+  .kf-dur{color:var(--ed-kf-text);font-size:11px;display:inline-flex;align-items:center;gap:3px}
+  .kf-dur input{width:52px;background:var(--ed-kf-field-bg);border:1px solid var(--ed-kf-border);color:var(--ed-kf-input-fg);font-size:11px;padding:1px 4px;border-radius:3px}
+  .kf-unit{color:var(--ed-kf-text-dim);font-size:10px}
+  .kf-time{color:var(--ed-kf-text);font-size:11px;font-family:monospace}
   .kf-keyseg{display:inline-flex;align-items:center;gap:3px}
-  .kf-seglabel{color:#7a8aa0;font-size:11px}
-  .kf-segbtn{background:#11161f;border:1px solid #2a3a4a;color:#9fb0c4;font-size:11px;padding:1px 7px;border-radius:3px;cursor:pointer}
-  .kf-segbtn:hover{border-color:#3a4a5e}
-  .kf-segbtn.active{background:#1c2636;border-color:#d4a056;color:#d4a056}
-  .kf-armed{color:#e0543a;font-size:10px;font-weight:bold;font-family:monospace}
-  .kf-hint{color:#4a5a70;font-size:9px;margin-left:auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .kf-seglabel{color:var(--ed-kf-text);font-size:11px}
+  .kf-segbtn{background:var(--ed-kf-field-bg);border:1px solid var(--ed-kf-border);color:var(--ed-kf-text-strong);font-size:11px;padding:1px 7px;border-radius:3px;cursor:pointer}
+  .kf-segbtn:hover{border-color:var(--ed-kf-btn-hover)}
+  .kf-segbtn.active{background:var(--ed-kf-row-sel);border-color:var(--ed-accent);color:var(--ed-accent)}
+  .kf-armed{color:var(--ed-kf-armed);font-size:10px;font-weight:bold;font-family:monospace}
+  .kf-hint{color:var(--ed-kf-text-faint);font-size:9px;margin-left:auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   `;
   document.head.appendChild(s);
 }

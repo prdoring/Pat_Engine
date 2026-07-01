@@ -170,17 +170,17 @@ export function buildSidebarShapeTree() {
       const b = document.createElement('span');
       b.textContent = glyph;
       b.title = title;
-      b.style.cssText = `cursor:pointer;font-size:10px;line-height:1;color:${on ? color : '#4a4030'};`;
+      b.style.cssText = `cursor:pointer;font-size:10px;line-height:1;color:${on ? color : 'var(--ed-toggle-off)'};`;
       b.addEventListener('click', (e) => { e.stopPropagation(); onClick(); rebuildTreeNodes(searchInput.value.toLowerCase()); });
       return b;
     };
-    toggles.appendChild(mkToggle('H', hidden, '#d4a056', 'Hide in preview', () => {
+    toggles.appendChild(mkToggle('H', hidden, 'var(--ed-accent)', 'Hide in preview', () => {
       if (ctx.editorHidden.has(key)) ctx.editorHidden.delete(key); else ctx.editorHidden.add(key);
     }));
-    toggles.appendChild(mkToggle('S', soloed, '#33ddcc', 'Solo (show only this)', () => {
+    toggles.appendChild(mkToggle('S', soloed, 'var(--ed-info)', 'Solo (show only this)', () => {
       ctx.editorSolo = soloed ? null : key;
     }));
-    toggles.appendChild(mkToggle('L', locked, '#cc6644', 'Lock (prevent edits)', () => {
+    toggles.appendChild(mkToggle('L', locked, 'var(--ed-lock)', 'Lock (prevent edits)', () => {
       if (ctx.editorLocked.has(key)) ctx.editorLocked.delete(key); else ctx.editorLocked.add(key);
     }));
     node.appendChild(toggles);

@@ -94,16 +94,16 @@ export function buildShapeProps() {
   iconSpan.textContent = SHAPE_ICONS[rawShape.type] || '?';
   header.appendChild(iconSpan);
   const nameSpan = document.createElement('span');
-  nameSpan.style.cssText = 'font-weight:bold;color:#d4a056;flex:1;';
+  nameSpan.style.cssText = 'font-weight:bold;color:var(--ed-accent);flex:1;';
   nameSpan.textContent = rawShape.name || rawShape.type;
   header.appendChild(nameSpan);
   const typeSpan = document.createElement('span');
-  typeSpan.style.cssText = 'color:#5a4a30;font-size:11px;';
+  typeSpan.style.cssText = 'color:var(--ed-faint);font-size:11px;';
   typeSpan.textContent = rawShape.type;
   header.appendChild(typeSpan);
   if (ctx.currentEditState !== 'BASE') {
     const badge = document.createElement('span');
-    badge.style.cssText = 'color:#33ddcc;font-size:10px;padding:1px 6px;border:1px solid #33ddcc44;border-radius:3px;margin-left:4px;';
+    badge.style.cssText = 'color:var(--ed-info);font-size:10px;padding:1px 6px;border:1px solid rgba(var(--ed-info-rgb),0.27);border-radius:3px;margin-left:4px;';
     badge.textContent = ctx.currentEditState;
     header.appendChild(badge);
   }
@@ -160,13 +160,13 @@ function buildAssetPanel(art) {
   const header = document.createElement('div');
   header.className = 'props-header';
   const title = document.createElement('span');
-  title.style.cssText = 'font-weight:bold;color:#d4a056;flex:1;';
+  title.style.cssText = 'font-weight:bold;color:var(--ed-accent);flex:1;';
   title.textContent = `Asset: ${art.name || ctx.currentLabel || ''}`;
   header.appendChild(title);
   ctx.propsEl.appendChild(header);
 
   const hint = document.createElement('div');
-  hint.style.cssText = 'color:#5a4a30;font-size:10px;padding:2px 4px 6px;';
+  hint.style.cssText = 'color:var(--ed-faint);font-size:10px;padding:2px 4px 6px;';
   hint.textContent = 'Asset-level settings (no shape selected). Pick a shape to edit it.';
   ctx.propsEl.appendChild(hint);
 
@@ -189,7 +189,7 @@ function buildAssetPanel(art) {
   const stateNames = (ctx.discoveredStates || []).filter(s => s !== 'BASE');
   const statesGroup = PropertyGroup(`Declared states (${stateNames.length})`);
   const note = document.createElement('div');
-  note.style.cssText = 'color:#5a4a30;font-size:9px;padding:2px 4px;';
+  note.style.cssText = 'color:var(--ed-faint);font-size:9px;padding:2px 4px;';
   note.textContent = stateNames.length ? stateNames.join(', ') : 'None — add states from the state bar above.';
   statesGroup.body.appendChild(note);
   ctx.propsEl.appendChild(statesGroup.el);
@@ -230,7 +230,7 @@ function buildOverridesContent(container, rawShape, onDirty) {
       const stateGroup = PropertyGroup(`${s} (${keys.length} props)`);
       for (const [k, v] of Object.entries(overrides)) {
         const lbl = document.createElement('div');
-        lbl.style.cssText = 'color:#7a6a4a;font-size:10px;padding:2px 4px;';
+        lbl.style.cssText = 'color:var(--ed-muted);font-size:10px;padding:2px 4px;';
         lbl.textContent = `${k}: ${JSON.stringify(v).slice(0, 50)}`;
         stateGroup.body.appendChild(lbl);
       }
@@ -246,9 +246,9 @@ function buildOverridesContent(container, rawShape, onDirty) {
   if (Object.keys(stateOverrides).length === 0) return;
 
   const divider = document.createElement('div');
-  divider.style.cssText = 'border-top:2px solid #33ddcc44;margin:8px 0 4px;padding-top:4px;';
+  divider.style.cssText = 'border-top:2px solid rgba(var(--ed-info-rgb),0.27);margin:8px 0 4px;padding-top:4px;';
   const label = document.createElement('div');
-  label.style.cssText = 'color:#33ddcc;font-size:11px;font-weight:bold;margin-bottom:4px;';
+  label.style.cssText = 'color:var(--ed-info);font-size:11px;font-weight:bold;margin-bottom:4px;';
   label.textContent = `Active Overrides: ${state}`;
   divider.appendChild(label);
   container.appendChild(divider);
@@ -285,18 +285,18 @@ function addOverrideRow(parent, key, val, baseVal, onReset) {
   row.style.cssText = 'display:flex;align-items:center;gap:4px;padding:2px 0;';
 
   const keyEl = document.createElement('span');
-  keyEl.style.cssText = 'color:#33ddcc;font-size:10px;min-width:80px;';
+  keyEl.style.cssText = 'color:var(--ed-info);font-size:10px;min-width:80px;';
   keyEl.textContent = key;
   row.appendChild(keyEl);
 
   const valEl = document.createElement('span');
-  valEl.style.cssText = 'color:#7a6a4a;font-size:10px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+  valEl.style.cssText = 'color:var(--ed-muted);font-size:10px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
   valEl.textContent = JSON.stringify(val).slice(0, 40);
   row.appendChild(valEl);
 
   if (baseVal !== undefined) {
     const baseHint = document.createElement('span');
-    baseHint.style.cssText = 'color:#5a4a30;font-size:9px;';
+    baseHint.style.cssText = 'color:var(--ed-faint);font-size:9px;';
     baseHint.textContent = `base: ${JSON.stringify(baseVal).slice(0, 20)}`;
     row.appendChild(baseHint);
   }

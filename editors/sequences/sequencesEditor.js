@@ -7,6 +7,7 @@ import { SoundManager } from '/engine/audio/SoundManager.js';
 import { FXSequenceRunner } from '/engine/fx/FXSequenceRunner.js';
 import { EffectsRenderer } from '/engine/render/EffectsRenderer.js';
 import { drawUnifiedArt } from '/engine/render/ArtInterpreter.js';
+import { themeColor, themeColorRgba } from '/editors/shared/theme.js';
 import { loadManifest } from '/editors/shared/index.js';
 import {
   SaveManager,
@@ -15,7 +16,7 @@ import {
 } from '/editors/shared/index.js';
 import {
   TRACK_ORDER, TRACK_LABELS, TRACK_COLORS,
-  TIMELINE_BG, TIMELINE_TRACK_HEIGHT, TIMELINE_HEADER_HEIGHT, TIMELINE_PADDING, MARKER_RADIUS,
+  TIMELINE_TRACK_HEIGHT, TIMELINE_HEADER_HEIGHT, TIMELINE_PADDING, MARKER_RADIUS,
   KNOWN_SIGNALS,
 } from './constants.js';
 
@@ -142,10 +143,10 @@ function buildUI() {
 
   // Top bar
   const topBar = document.createElement('div');
-  topBar.style.cssText = 'display:flex;align-items:center;padding:6px 12px;border-bottom:1px solid #2a2a3a;gap:12px;flex-shrink:0;';
+  topBar.style.cssText = 'display:flex;align-items:center;padding:6px 12px;border-bottom:1px solid var(--ed-border-subtle);gap:12px;flex-shrink:0;';
 
   const title = document.createElement('span');
-  title.style.cssText = 'color:#d4a056;font-weight:bold;font-size:13px;';
+  title.style.cssText = 'color:var(--ed-accent);font-weight:bold;font-size:13px;';
   title.textContent = 'SEQUENCE EDITOR';
   topBar.appendChild(title);
 
@@ -176,12 +177,12 @@ function buildUI() {
 
   // Controls
   controlsEl = document.createElement('div');
-  controlsEl.style.cssText = 'display:flex;gap:8px;padding:6px 12px;align-items:center;flex-wrap:wrap;flex-shrink:0;border-bottom:1px solid #1a1a2a;';
+  controlsEl.style.cssText = 'display:flex;gap:8px;padding:6px 12px;align-items:center;flex-wrap:wrap;flex-shrink:0;border-bottom:1px solid var(--ed-surface);';
   center.appendChild(controlsEl);
 
   // VFX Preview canvas
   const previewWrap = document.createElement('div');
-  previewWrap.style.cssText = 'flex:0 0 140px;position:relative;overflow:hidden;background:#060d18;';
+  previewWrap.style.cssText = 'flex:0 0 140px;position:relative;overflow:hidden;background:var(--ed-bg-app);';
   previewCanvas = document.createElement('canvas');
   previewCanvas.style.cssText = 'width:100%;height:100%;display:block;';
   previewWrap.appendChild(previewCanvas);
@@ -268,7 +269,7 @@ function buildSidebar() {
   searchInput.type = 'text';
   searchInput.placeholder = 'Search...';
   searchInput.className = 'editor-search';
-  searchInput.style.cssText = 'width:100%;margin-bottom:8px;background:#1a1a2a;border:1px solid #2a2a3a;color:#d4a056;padding:4px 6px;border-radius:3px;font-size:11px;';
+  searchInput.style.cssText = 'width:100%;margin-bottom:8px;background:var(--ed-surface);border:1px solid var(--ed-border-subtle);color:var(--ed-accent);padding:4px 6px;border-radius:3px;font-size:11px;';
   searchInput.addEventListener('input', rebuildSequenceList);
   sidebarEl.appendChild(searchInput);
 
@@ -296,8 +297,8 @@ function buildSidebar() {
 function buildSequenceRow(id, parentEl) {
   const row = document.createElement('div');
   row.style.cssText = `padding:3px 8px;cursor:pointer;font-size:11px;border-radius:3px;margin:1px 0;
-    color:${id === selectedSeqId ? '#d4a056' : '#8a7a5a'};
-    background:${id === selectedSeqId ? '#2a2a3a' : ''};`;
+    color:${id === selectedSeqId ? 'var(--ed-accent)' : 'var(--ed-muted2)'};
+    background:${id === selectedSeqId ? 'var(--ed-surface-sel)' : ''};`;
 
   const seq = workingData[id];
   const posTag = seq.positional ? ' [P]' : '';
@@ -305,7 +306,7 @@ function buildSequenceRow(id, parentEl) {
 
   row.addEventListener('click', () => selectSequence(id));
   row.addEventListener('mouseenter', () => {
-    if (id !== selectedSeqId) row.style.background = '#1a1a2a';
+    if (id !== selectedSeqId) row.style.background = 'var(--ed-surface)';
   });
   row.addEventListener('mouseleave', () => {
     if (id !== selectedSeqId) row.style.background = '';
@@ -352,13 +353,13 @@ function rebuildSequenceList() {
 
     const header = document.createElement('div');
     header.style.cssText = `padding:3px 8px;cursor:pointer;font-size:11px;border-radius:3px;margin:1px 0;
-      color:#5a4a30;user-select:none;`;
+      color:var(--ed-faint);user-select:none;`;
     header.textContent = `${singleStepFolderOpen ? '\u25BC' : '\u25B6'} Simple (${singleStep.length})`;
     header.addEventListener('click', () => {
       singleStepFolderOpen = !singleStepFolderOpen;
       rebuildSequenceList();
     });
-    header.addEventListener('mouseenter', () => { header.style.background = '#1a1a2a'; });
+    header.addEventListener('mouseenter', () => { header.style.background = 'var(--ed-surface)'; });
     header.addEventListener('mouseleave', () => { header.style.background = ''; });
     folder.appendChild(header);
 
@@ -417,7 +418,7 @@ function buildControls() {
 
   if (!selectedSeqId) {
     const note = document.createElement('span');
-    note.style.cssText = 'color:#5a4a30;font-size:11px;';
+    note.style.cssText = 'color:var(--ed-faint);font-size:11px;';
     note.textContent = 'Select a sequence to edit';
     controlsEl.appendChild(note);
     return;
@@ -452,7 +453,7 @@ function buildControls() {
 
   // Zoom controls
   const zoomLabel = document.createElement('span');
-  zoomLabel.style.cssText = 'color:#5a4a30;font-size:10px;margin-left:12px;';
+  zoomLabel.style.cssText = 'color:var(--ed-faint);font-size:10px;margin-left:12px;';
   zoomLabel.textContent = `Zoom: ${timeScale.toFixed(2)}px/ms`;
   controlsEl.appendChild(zoomLabel);
 
@@ -508,8 +509,9 @@ function renderTimeline() {
   // Apply DPR transform so drawing coords match CSS pixels
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-  // Clear
-  ctx.fillStyle = TIMELINE_BG;
+  // Clear (timeline chrome reuses the shared --ed-kf-* keyframe-timeline tokens,
+  // read fresh each frame so a theme switch is picked up automatically)
+  ctx.fillStyle = themeColor('--ed-kf-bg');
   ctx.fillRect(0, 0, w, h);
 
   if (!selectedSeqId || !workingData[selectedSeqId]) return;
@@ -522,9 +524,9 @@ function renderTimeline() {
   const xToTime = (x) => (x - TIMELINE_PADDING - timeOffset) / timeScale;
 
   // Draw time axis
-  ctx.fillStyle = '#2a2a3a';
+  ctx.fillStyle = themeColor('--ed-kf-field-bg');
   ctx.fillRect(0, 0, w, TIMELINE_HEADER_HEIGHT);
-  ctx.strokeStyle = '#3a3a4a';
+  ctx.strokeStyle = themeColor('--ed-kf-border');
   ctx.lineWidth = 1;
 
   // Time ticks
@@ -532,7 +534,7 @@ function renderTimeline() {
   const startTime = Math.max(0, Math.floor(xToTime(0) / tickInterval) * tickInterval);
   const endTime = xToTime(w);
 
-  ctx.fillStyle = '#5a4a30';
+  ctx.fillStyle = themeColor('--ed-kf-text');
   ctx.font = '10px monospace';
   ctx.textAlign = 'center';
   for (let t = startTime; t <= endTime; t += tickInterval) {
@@ -542,13 +544,13 @@ function renderTimeline() {
     ctx.beginPath();
     ctx.moveTo(x, TIMELINE_HEADER_HEIGHT - 6);
     ctx.lineTo(x, TIMELINE_HEADER_HEIGHT);
-    ctx.strokeStyle = '#3a3a4a';
+    ctx.strokeStyle = themeColor('--ed-kf-border');
     ctx.stroke();
 
     ctx.fillText(`${t}ms`, x, TIMELINE_HEADER_HEIGHT - 8);
 
     // Grid line
-    ctx.strokeStyle = '#1a1a2a';
+    ctx.strokeStyle = themeColor('--ed-kf-border-dim');
     ctx.beginPath();
     ctx.moveTo(x, TIMELINE_HEADER_HEIGHT);
     ctx.lineTo(x, h);
@@ -578,7 +580,7 @@ function renderTimeline() {
     ctx.globalAlpha = 1;
 
     // Track background stripe
-    ctx.fillStyle = 'rgba(255,255,255,0.02)';
+    ctx.fillStyle = themeColorRgba('--ed-accent-rgb', 0.04);
     ctx.fillRect(0, trackY, w, TIMELINE_TRACK_HEIGHT);
 
     // Step markers
@@ -610,7 +612,7 @@ function renderTimeline() {
       // Marker dot
       ctx.beginPath();
       ctx.arc(x, cy, MARKER_RADIUS, 0, Math.PI * 2);
-      ctx.fillStyle = isSelected ? '#ffffff' : color;
+      ctx.fillStyle = isSelected ? themeColor('--ed-kf-key-hi') : color;
       ctx.fill();
       if (isSelected) {
         ctx.strokeStyle = color;
@@ -625,7 +627,7 @@ function renderTimeline() {
   // Playhead
   const phX = timeToX(playheadTime);
   if (phX >= 0 && phX <= w) {
-    ctx.strokeStyle = '#ff6644';
+    ctx.strokeStyle = themeColor('--ed-kf-playhead');
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.moveTo(phX, 0);
@@ -633,7 +635,7 @@ function renderTimeline() {
     ctx.stroke();
 
     // Playhead triangle
-    ctx.fillStyle = '#ff6644';
+    ctx.fillStyle = themeColor('--ed-kf-playhead');
     ctx.beginPath();
     ctx.moveTo(phX - 5, 0);
     ctx.lineTo(phX + 5, 0);
@@ -723,9 +725,9 @@ function renderVfxPreview(now) {
   const h = previewCanvas.height;
   if (w === 0 || h === 0) return;
 
-  // Clear
+  // Clear (theme-driven — matches the art preview + the rest of the editor chrome)
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.fillStyle = '#060d18';
+  ctx.fillStyle = themeColor('--ed-bg-app');
   ctx.fillRect(0, 0, w, h);
 
   // Camera center (with pan offset)
@@ -735,7 +737,7 @@ function renderVfxPreview(now) {
   const cy = h / 2 + pan.y;
 
   // Subtle grid (follows camera)
-  ctx.strokeStyle = 'rgba(212,160,86,0.04)';
+  ctx.strokeStyle = themeColorRgba('--ed-accent-rgb', 0.04);
   ctx.lineWidth = 0.5;
   ctx.beginPath(); ctx.moveTo(cx, 0); ctx.lineTo(cx, h); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(0, cy); ctx.lineTo(w, cy); ctx.stroke();
@@ -749,7 +751,7 @@ function renderVfxPreview(now) {
 
   // Label (only when no effects and no art)
   if (vfxEffects.length === 0 && vfxDebris.length === 0 && artPreviewType === 'none') {
-    ctx.fillStyle = '#2a2a3a';
+    ctx.fillStyle = themeColor('--ed-kf-text-empty');
     ctx.font = '10px monospace';
     ctx.textAlign = 'center';
     ctx.fillText('VFX Preview', w / 2 + pan.x, h / 2 + pan.y + 4);
@@ -1044,7 +1046,7 @@ function duplicateStep(idx) {
 // ─── Properties Panel ────────────────────────────────────────────────────────
 
 function clearProps() {
-  propsEl.innerHTML = '<div style="color:#7a6a4a;padding:20px;text-align:center;">Select a step on the timeline to edit</div>';
+  propsEl.innerHTML = '<div style="color:var(--ed-muted);padding:20px;text-align:center;">Select a step on the timeline to edit</div>';
 }
 
 function buildStepProps() {
@@ -1065,7 +1067,7 @@ function buildStepProps() {
   const header = document.createElement('div');
   header.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:8px;';
   const stepLabel = document.createElement('span');
-  stepLabel.style.cssText = 'color:#d4a056;font-weight:bold;font-size:12px;';
+  stepLabel.style.cssText = 'color:var(--ed-accent);font-weight:bold;font-size:12px;';
   stepLabel.textContent = `Step ${selectedStepIdx}: ${step.type}`;
   header.appendChild(stepLabel);
 

@@ -28,7 +28,7 @@ export function showAddShapeDialog() {
   if (!treeScroll) return;
 
   const dialog = document.createElement('div');
-  dialog.style.cssText = 'background:#1a1a2a;border:1px solid #3a3a4a;border-radius:4px;padding:6px;margin:4px;';
+  dialog.style.cssText = 'background:var(--ed-surface);border:1px solid var(--ed-border-subtle2);border-radius:4px;padding:6px;margin:4px;';
 
   const sel = document.createElement('select');
   sel.className = 'editor-select-input';
@@ -93,9 +93,9 @@ export function showWrapDialog() {
   if (!treeScroll) return;
 
   const dialog = document.createElement('div');
-  dialog.style.cssText = 'background:#1a1a2a;border:1px solid #33ddcc44;border-radius:4px;padding:6px;margin:4px;';
+  dialog.style.cssText = 'background:var(--ed-surface);border:1px solid rgba(var(--ed-info-rgb),0.27);border-radius:4px;padding:6px;margin:4px;';
   const label = document.createElement('div');
-  label.style.cssText = 'color:#33ddcc;font-size:10px;margin-bottom:4px;';
+  label.style.cssText = 'color:var(--ed-info);font-size:10px;margin-bottom:4px;';
   label.textContent = `Wrap "${shape.name || shape.type}" in:`;
   dialog.appendChild(label);
 
@@ -154,9 +154,9 @@ export function showMoveIntoDialog() {
   if (!treeScroll) return;
 
   const dialog = document.createElement('div');
-  dialog.style.cssText = 'background:#1a1a2a;border:1px solid #33ddcc44;border-radius:4px;padding:6px;margin:4px;';
+  dialog.style.cssText = 'background:var(--ed-surface);border:1px solid rgba(var(--ed-info-rgb),0.27);border-radius:4px;padding:6px;margin:4px;';
   const label = document.createElement('div');
-  label.style.cssText = 'color:#33ddcc;font-size:10px;margin-bottom:4px;';
+  label.style.cssText = 'color:var(--ed-info);font-size:10px;margin-bottom:4px;';
   label.textContent = `Move "${shape.name || shape.type}" into:`;
   dialog.appendChild(label);
 

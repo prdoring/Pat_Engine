@@ -447,8 +447,8 @@ export function Toggle(label, value, onChange) {
   let currentVal = !!value;
   function update() {
     btn.textContent = currentVal ? 'ON' : 'OFF';
-    btn.style.color = currentVal ? '#33ddcc' : '#7a6a4a';
-    btn.style.borderColor = currentVal ? '#33ddcc' : '#5a4a30';
+    btn.style.color = currentVal ? 'var(--ed-info)' : 'var(--ed-muted)';
+    btn.style.borderColor = currentVal ? 'var(--ed-info)' : 'var(--ed-border)';
   }
   update();
 
@@ -640,7 +640,7 @@ export function CoordEditor(label, value, availableVars, onChange) {
   container.appendChild(body);
 
   const readoutEl = document.createElement('div');
-  readoutEl.style.cssText = 'color:#5a4a30;font-size:9px;padding:1px 0 2px 4px;font-family:monospace;';
+  readoutEl.style.cssText = 'color:var(--ed-faint);font-size:9px;padding:1px 0 2px 4px;font-family:monospace;';
   container.appendChild(readoutEl);
   function updateReadout() { readoutEl.textContent = _coordReadout ? _coordReadout(value) : ''; }
 

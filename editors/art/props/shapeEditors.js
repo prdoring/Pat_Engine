@@ -18,7 +18,7 @@ import { buildAnimVarEditor } from './setupEditor.js';
 /** A subtle "enable this optional field" button. */
 function addFieldButton(label, onClick) {
   const b = Button(label, onClick, 'subtle');
-  b.el.style.cssText += 'font-size:10px;padding:1px 6px;margin:2px 0;color:#7a9a6a;';
+  b.el.style.cssText += 'font-size:10px;padding:1px 6px;margin:2px 0;color:var(--ed-green);';
   return b.el;
 }
 const radiusModeToggle = addFieldButton;
@@ -39,7 +39,7 @@ export function buildGroupEditor(parent, shape, vars, onDirty) {
   }).el);
 
   const info = document.createElement('div');
-  info.style.cssText = 'color:#5a4a30;font-size:10px;padding:4px;';
+  info.style.cssText = 'color:var(--ed-faint);font-size:10px;padding:4px;';
   info.textContent = `${(shape.shapes || []).length} child shape(s) — select in tree to edit`;
   parent.appendChild(info);
 }
@@ -52,7 +52,7 @@ export function buildRadialRepeatEditor(parent, shape, vars, onDirty) {
   parent.appendChild(NumberSlider('Count', 1, 24, 1, shape.count || 6, v => set('count', v)).el);
 
   const info = document.createElement('div');
-  info.style.cssText = 'color:#5a4a30;font-size:10px;padding:4px;';
+  info.style.cssText = 'color:var(--ed-faint);font-size:10px;padding:4px;';
   info.textContent = `${(shape.shapes || []).length} child shape(s) — select in tree to edit`;
   parent.appendChild(info);
 }
@@ -116,7 +116,7 @@ function livePointRow(rawShape, propPath, onDirty, labelText) {
   row.style.cssText = 'display:flex;gap:4px;align-items:center;';
   if (labelText != null) {
     const lbl = document.createElement('span');
-    lbl.style.cssText = 'color:#5a4a30;font-size:10px;width:30px;';
+    lbl.style.cssText = 'color:var(--ed-faint);font-size:10px;width:30px;';
     lbl.textContent = labelText;
     row.appendChild(lbl);
   }
@@ -393,7 +393,7 @@ export function buildEffectRefEditor(parent, shape, vars, onDirty) {
 
   const grp = PropertyGroup('Playback');
   const info = document.createElement('div');
-  info.style.cssText = 'color:#7fb0d8;font-size:9px;padding:2px 4px;line-height:1.5;';
+  info.style.cssText = 'color:var(--ed-blue);font-size:9px;padding:2px 4px;line-height:1.5;';
   if (!def) {
     info.textContent = 'References a VFX effect by id. Author effects in the VFX tab.';
   } else if (driven) {
@@ -431,7 +431,7 @@ export function buildEffectRefEditor(parent, shape, vars, onDirty) {
 
 export function buildConditionalEditor(parent, shape, _stateNames, _onDirty) {
   const info = document.createElement('div');
-  info.style.cssText = 'color:#5a4a30;font-size:10px;padding:4px;';
+  info.style.cssText = 'color:var(--ed-faint);font-size:10px;padding:4px;';
   info.textContent = `${(shape.shapes || []).length} child shape(s) — select in tree to edit`;
   parent.appendChild(info);
 }
@@ -518,7 +518,7 @@ export function buildParticlesEditor(parent, shape, vars, stateNames, onDirty) {
 export function buildRepeatEditor(parent, shape, vars, onDirty) {
   const set = (k, v) => { shape[k] = v; onDirty(); };
   const explain = document.createElement('div');
-  explain.style.cssText = 'color:#7a6a4a;font-size:9px;padding:2px 4px;';
+  explain.style.cssText = 'color:var(--ed-muted);font-size:9px;padding:2px 4px;';
   explain.textContent = `Draws the children once per "${shape.var || 'i'}" value, stepping from→to.`;
   parent.appendChild(explain);
   parent.appendChild(TextInput('Variable', shape.var || 'i', v => set('var', v)).el);
@@ -531,14 +531,14 @@ export function buildRepeatEditor(parent, shape, vars, onDirty) {
   const stepN = shape.step || 0.25;
   const copies = stepN > 0 ? Math.floor((toN - fromN) / stepN) + 1 : 0;
   const info = document.createElement('div');
-  info.style.cssText = 'color:#5a4a30;font-size:10px;padding:4px;';
+  info.style.cssText = 'color:var(--ed-faint);font-size:10px;padding:4px;';
   info.textContent = `≈ ${copies > 0 ? copies : 0} copies × ${(shape.shapes || []).length} child shape(s)`;
   parent.appendChild(info);
 }
 
 export function buildForEachEditor(parent, shape, onDirty) {
   const explain = document.createElement('div');
-  explain.style.cssText = 'color:#7a6a4a;font-size:9px;padding:2px 4px;';
+  explain.style.cssText = 'color:var(--ed-muted);font-size:9px;padding:2px 4px;';
   explain.textContent = 'Draws the children once per item. One var name, or comma-separated for tuples.';
   parent.appendChild(explain);
   parent.appendChild(TextInput('Variable(s)', Array.isArray(shape.var) ? shape.var.join(', ') : shape.var || 'p', v => {
@@ -548,7 +548,7 @@ export function buildForEachEditor(parent, shape, onDirty) {
 
   const itemsInput = TextInput('Items (JSON)', JSON.stringify(shape.items || []), () => {});
   const err = document.createElement('div');
-  err.style.cssText = 'color:#e08a6a;font-size:9px;min-height:11px;padding:0 4px;';
+  err.style.cssText = 'color:var(--ed-error);font-size:9px;min-height:11px;padding:0 4px;';
   itemsInput.el.querySelector('input')?.addEventListener('input', (e) => {
     try {
       const parsed = JSON.parse(e.target.value);
@@ -560,7 +560,7 @@ export function buildForEachEditor(parent, shape, onDirty) {
   parent.appendChild(err);
 
   const info = document.createElement('div');
-  info.style.cssText = 'color:#5a4a30;font-size:10px;padding:4px;';
+  info.style.cssText = 'color:var(--ed-faint);font-size:10px;padding:4px;';
   info.textContent = `≈ ${(shape.items || []).length} copies × ${(shape.shapes || []).length} child shape(s)`;
   parent.appendChild(info);
 }

@@ -59,7 +59,7 @@ export function buildKeyframePanel(parent, rawShape, shape, onDirty) {
   group.body.appendChild(head);
 
   const hint = document.createElement('div');
-  hint.style.cssText = 'color:#5a4a30;font-size:9px;padding:1px 4px;';
+  hint.style.cssText = 'color:var(--ed-faint);font-size:9px;padding:1px 4px;';
   hint.textContent = ctx.autoKey
     ? 'Auto-key ON · scrub the timeline, then tweak this part — each change keys at the playhead.'
     : 'Auto-key OFF · edits change the base value. Use “Key part” or the channels below to key.';
@@ -72,7 +72,7 @@ export function buildKeyframePanel(parent, rawShape, shape, onDirty) {
     const row = document.createElement('div');
     row.style.cssText = 'display:flex;align-items:center;gap:6px;padding:1px 4px;font-size:11px;';
     const lbl = document.createElement('span');
-    lbl.style.cssText = `flex:1;color:${track ? '#d4a056' : '#8a7a5a'};`;
+    lbl.style.cssText = `flex:1;color:${track ? 'var(--ed-accent)' : 'var(--ed-muted2)'};`;
     lbl.textContent = p.label + (track ? `  ◆${track.length}` : '');
     row.appendChild(lbl);
     if (track) {
@@ -100,14 +100,14 @@ export function buildKeyframePanel(parent, rawShape, shape, onDirty) {
       onDirty(); ctx.rebuildTimeline?.(); ctx.rebuildProps?.();
     }, 'subtle');
     keyBtn2.el.title = `Set a keyframe for ${p.label} at the playhead`;
-    keyBtn2.el.style.cssText += 'font-size:9px;padding:1px 6px;color:#d4a056;';
+    keyBtn2.el.style.cssText += 'font-size:9px;padding:1px 6px;color:var(--ed-accent);';
     row.appendChild(keyBtn2.el);
     adv.body.appendChild(row);
   }
 
   // Guided generator: a one-click looping motion (min → max → min, easeInOutSine).
   const gen = document.createElement('div');
-  gen.style.cssText = 'border-top:1px solid #2a2a3a;margin-top:4px;padding-top:4px;';
+  gen.style.cssText = 'border-top:1px solid var(--ed-border-subtle);margin-top:4px;padding-top:4px;';
   let genIdx = 0, amount = 0.1, periodSec = 2;
   gen.appendChild(Select('Add motion', props.map((p, i) => ({ value: String(i), label: p.label })), '0', v => { genIdx = +v; }).el);
   gen.appendChild(NumberSlider('Amount (±)', 0.01, 2, 0.01, amount, v => { amount = v; }).el);
