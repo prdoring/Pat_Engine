@@ -217,7 +217,7 @@ range toggles for `[min,max]`); the Music sub-tab is a mixing console + **piano-
 `data/music.json` — song picker + new/clone/rename/delete song, tempo grid (`bpm`/`bars`/`beatsPerBar`/`grid`),
 `masterLevel`/`fadeSeconds`, stem add/remove/reorder/rename/clone + instrument assignment + mute/solo/repeat
 per strip, vibe scenes (rename/clone/delete/docs + per-stem faders), and a click-a-stem piano roll
-(`editors/pianoRoll.js`, note ops in `editors/midiModel.js`) to draw/move/resize/delete notes, transpose,
+(`editors/music/pianoRoll.js`, note ops in `editors/music/model/midiModel.js`) to draw/move/resize/delete notes, transpose,
 quantize — auditioned live through `MusicDirector` (note edits swap in with no restart, in sync). Import
-notes by pasting or uploading **ABC** (`editors/abcModel.js`) or **MIDI**, or drag-drop a `.mid`/`.abc`
+notes by pasting or uploading **ABC** (`editors/music/model/abcModel.js`) or **MIDI**, or drag-drop a `.mid`/`.abc`
 file; a longer import auto-extends the song's `bars`.

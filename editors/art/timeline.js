@@ -1,4 +1,4 @@
-// editors/artEditorTimeline.js
+// editors/art/timeline.js
 // Part-centric keyframe timeline (dope sheet) for the art editor. One row per
 // PART (shape) instead of one row per variable: a diamond marks any time the part
 // has >=1 keyed property (a "pose"). Drag a part diamond to retime the whole pose,
@@ -8,15 +8,15 @@
 //
 // Forked from the MIDI piano roll: same ruler + draggable playhead, drag-mode mouse
 // model, Ctrl/Cmd+wheel zoom (Shift+wheel pan), and dark themed look. Edits go
-// through the pure ops in artKeyframes.js; the host owns persistence (ctx.markDirty)
+// through the pure ops in model/keyframes.js; the host owns persistence (ctx.markDirty)
 // and the preview clock (ctx.playhead → previewTransition.animTime).
 
-import { ctx, getShapeAtPath } from './artEditorCtx.js';
-import { Button, Toggle } from './editorShared.js';
+import { ctx, getShapeAtPath } from './ctx.js';
+import { Button, Toggle } from '/editors/shared/index.js';
 import {
   clipMeta, ensureClip, setClipMeta, getTrack, setKeyframe, deleteKeyframe,
   makeLoopable, clipKeys, listPartRows, movePose, deletePose, keyPose, getPropValue,
-} from './artKeyframes.js';
+} from './model/keyframes.js';
 import { sampleTrack } from '/engine/render/interp.js';
 
 const GUTTER = 150;  // left label column (wider — holds part names + caret)

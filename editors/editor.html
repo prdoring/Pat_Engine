@@ -809,6 +809,13 @@
       art: 'tab-art', vfx: 'tab-vfx', sequences: 'tab-sequences',
       soundboard: 'subtab-sounds', music: 'subtab-music',
     };
+    const ENTRY_OF = {                                          // editor id → module path
+      art: '/editors/art/artEditor.js',                        // relocated into art/
+      vfx: '/editors/vfx/vfxEditor.js',                        // relocated into vfx/
+      sequences: '/editors/sequences/sequencesEditor.js',      // relocated into sequences/
+      soundboard: '/editors/soundboard/soundboardEditor.js',   // relocated into soundboard/
+      music: '/editors/music/musicEditor.js',                  // relocated into music/
+    };
 
     const editors = {};
     for (const id of Object.keys(PANEL_OF)) editors[id] = { module: null, mounted: false };
@@ -821,7 +828,7 @@
     async function mountEditor(editorId) {
       if (editors[editorId].mounted) return;
       try {
-        const mod = await import(`/editors/${editorId}Editor.js`);
+        const mod = await import(ENTRY_OF[editorId]);
         await mod.mount(document.getElementById(PANEL_OF[editorId]));
         editors[editorId] = { module: mod, mounted: true };
       } catch (err) {

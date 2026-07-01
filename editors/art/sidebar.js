@@ -1,16 +1,16 @@
 // Asset browser sidebar for the art editor.
 // Builds the left sidebar with art asset categories and handles selection +
 // asset CRUD (new / rename / duplicate / delete). Asset operations live in the
-// DOM-free artAssetOps.js so they stay unit-testable; this file is the DOM shell.
+// DOM-free model/assetOps.js so they stay unit-testable; this file is the DOM shell.
 
-import { ctx } from './artEditorCtx.js';
-import { discoverStates } from './artEditorStates.js';
-import { startAnimation } from './artEditorPreview.js';
-import { modalPrompt, modalConfirm, modalAlert } from './editorShared.js';
+import { ctx } from './ctx.js';
+import { discoverStates } from './states.js';
+import { startAnimation } from './preview/preview.js';
+import { modalPrompt, modalConfirm, modalAlert } from '/editors/shared/index.js';
 import {
   getAssetsMap, validateAssetId, newAssetTemplate,
   addAsset, duplicateAsset, deleteAsset, renameAsset,
-} from './artAssetOps.js';
+} from './model/assetOps.js';
 
 // ─── Sidebar ─────────────────────────────────────────────────────────────────
 

@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 const {
   getAssetsMap, isValidAssetId, validateAssetId, newAssetTemplate,
   addAsset, duplicateAsset, deleteAsset, renameAsset,
-} = await import('/editors/artAssetOps.js');
+} = await import('/editors/art/model/assetOps.js');
 
 // A nested-collection fixture (the engine's standard art-file shape), fresh per
 // test since helpers mutate in place.

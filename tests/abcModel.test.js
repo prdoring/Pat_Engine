@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 // Pure ABC ⇄ beats converter for the music editor. Headless, no DOM. Notes are
 // `{ beat, len, midi, vel }` (beats; 1 beat = a quarter note), kept sorted by beat.
 
-const { importAbc, stemToAbc, keyAccidentals, pitchToAbc } = await import('/editors/abcModel.js');
+const { importAbc, stemToAbc, keyAccidentals, pitchToAbc } = await import('/editors/music/model/abcModel.js');
 
 // Compact view for assertions.
 const triples = (notes) => notes.map(n => [n.beat, n.len, n.midi]);

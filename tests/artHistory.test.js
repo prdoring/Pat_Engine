@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 // Pure undo/redo stack core for the art editor. Headless, no DOM. Matches the
 // music editor's "top = current" snapshot convention.
 
-const { createHistory } = await import('/editors/artHistory.js');
+const { createHistory } = await import('/editors/art/model/history.js');
 
 test('init seeds one state; nothing to undo/redo yet', () => {
   const h = createHistory();

@@ -9,14 +9,14 @@ import { SoundManager } from '/engine/audio/SoundManager.js';
 import { MusicDirector } from '/engine/audio/MusicDirector.js';
 import { MUSIC_SONGS } from '/engine/data/music.js';
 import { SOUND_CONFIG } from '/engine/data/sounds.js';
-import { SaveManager, modalAlert, modalConfirm, modalPrompt, modalSelect, isModalOpen, openModal, modalBtn, btnRow } from './editorShared.js';
+import { SaveManager, modalAlert, modalConfirm, modalPrompt, modalSelect, isModalOpen, openModal, modalBtn, btnRow } from '/editors/shared/index.js';
 import {
   newSong, addStem, removeStem, renameStem, reorderStem,
   renameVibe, deleteVibe, setVibeDoc,
   cloneStem, cloneVibe, uniqueSongId, renameSong, duplicateSong, deleteSong,
-} from './musicModel.js';
-import { importMidiTrack, snap as snapBeat, sortNotes, PITCH_MIN, PITCH_MAX } from './midiModel.js';
-import { importAbc, stemToAbc } from './abcModel.js';
+} from './model/musicModel.js';
+import { importMidiTrack, snap as snapBeat, sortNotes, PITCH_MIN, PITCH_MAX } from './model/midiModel.js';
+import { importAbc, stemToAbc } from './model/abcModel.js';
 import { parseMidi } from '/engine/audio/midi.js';
 import { createPianoRoll } from './pianoRoll.js';
 

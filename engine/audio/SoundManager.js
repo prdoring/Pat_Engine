@@ -1,5 +1,12 @@
 import { SOUND_CONFIG, SoundCategory } from '/engine/data/sounds.js';
 import { parseMidi } from '/engine/audio/midi.js';
+import { resolveValue, resolveSynth, resolveFilter } from '/engine/audio/synth/randomize.js';
+import { transposeSynth, midiNotesFor, midiVoiceSetup, notesDuration } from '/engine/audio/synth/midiVoice.js';
+import {
+  createNoiseBuffer, makeDistortionCurve, buildSynthFilter, buildDistortion,
+  buildVibrato, applyReverbSend,
+} from '/engine/audio/synth/dsp.js';
+import { buildSynthOneShot, renderMidiNote, renderMidiNotes } from '/engine/audio/synth/voices.js';
 
 const MAX_CONCURRENT = 32;
 const MAX_LOOPS = 24;         // cap on simultaneous looping voices (separate from one-shots)
@@ -112,12 +119,24 @@ export class SoundManager {
    * reverb too. No-op when there's no reverb graph or `wet` is falsy.
    */
   _applyReverbSend(sourceNode, wet) {
-    if (!this.reverbConvolver || !wet) return null;
-    const reverbSend = this.ctx.createGain();
-    reverbSend.gain.value = wet;
-    sourceNode.connect(reverbSend);
-    reverbSend.connect(this.reverbConvolver);
-    return reverbSend;
+    return applyReverbSend(this.ctx, this.reverbConvolver, sourceNode, wet);
+  }
+
+  /**
+   * Bundle the AudioContext + loaded buffers + reverb graph + the stateful
+   * node-builder methods so the extracted voice constructors (synth/voices.js)
+   * can build voices without reaching into instance state directly.
+   */
+  _kit() {
+    return {
+      ctx: this.ctx,
+      buffers: this.buffers,
+      reverbConvolver: this.reverbConvolver,
+      buildVoiceTail: (d, e) => this._buildVoiceTail(d, e),
+      buildNoiseLayer: (l, e) => this._buildNoiseLayer(l, e),
+      buildVibrato: (v, o, n) => this._buildVibrato(v, o, n),
+      applyReverbSend: (s, w) => this._applyReverbSend(s, w),
+    };
   }
 
   async init() {
@@ -585,103 +604,25 @@ export class SoundManager {
 
   // ─── Synth: Randomization ──────────────────────────────────────
 
-  /** Resolve a value that may be a number or a [min, max] range array. */
-  _resolveValue(v) {
-    if (Array.isArray(v)) return v[0] + Math.random() * (v[1] - v[0]);
-    return v;
-  }
-
-  /** Deep-clone a synth definition, resolving any [min, max] ranges to concrete numbers. */
-  _resolveSynth(synthDef) {
-    const resolved = {};
-
-    // Top-level numeric params
-    for (const key of ['freq', 'freqEnd', 'duration', 'attack', 'decay', 'detune', 'reverb', 'distortion']) {
-      if (synthDef[key] !== undefined) resolved[key] = this._resolveValue(synthDef[key]);
-    }
-
-    // Pass through non-randomizable params
-    if (synthDef.type) resolved.type = synthDef.type;
-
-    // Layers
-    if (synthDef.layers) {
-      resolved.layers = synthDef.layers.map(layer => {
-        const r = {};
-        if (layer.type) r.type = layer.type;
-
-        if (layer.type === 'file') {
-          // File layer — pass through path, resolve randomizable gain/playbackRate
-          r.file = layer.file;
-          if (layer.gain !== undefined) r.gain = this._resolveValue(layer.gain);
-          if (layer.playbackRate !== undefined) r.playbackRate = this._resolveValue(layer.playbackRate);
-        } else if (layer.type === 'noise') {
-          // Noise layer — resolve gain + optional shaping filter
-          if (layer.gain !== undefined) r.gain = this._resolveValue(layer.gain);
-          if (layer.filter) r.filter = this._resolveFilter(layer.filter);
-        } else {
-          // Oscillator layer
-          for (const key of ['freq', 'freqEnd', 'gain', 'detune']) {
-            if (layer[key] !== undefined) r[key] = this._resolveValue(layer[key]);
-          }
-        }
-        return r;
-      });
-    }
-
-    // LFO (amplitude/tremolo)
-    if (synthDef.lfo) {
-      resolved.lfo = {};
-      if (synthDef.lfo.freq !== undefined) resolved.lfo.freq = this._resolveValue(synthDef.lfo.freq);
-      if (synthDef.lfo.depth !== undefined) resolved.lfo.depth = this._resolveValue(synthDef.lfo.depth);
-    }
-
-    // Vibrato (pitch LFO — depth in cents)
-    if (synthDef.vibrato) {
-      resolved.vibrato = {};
-      if (synthDef.vibrato.freq !== undefined) resolved.vibrato.freq = this._resolveValue(synthDef.vibrato.freq);
-      if (synthDef.vibrato.depth !== undefined) resolved.vibrato.depth = this._resolveValue(synthDef.vibrato.depth);
-    }
-
-    // Synth-level tone filter
-    if (synthDef.filter) resolved.filter = this._resolveFilter(synthDef.filter);
-
-    return resolved;
-  }
-
-  /** Resolve a filter sub-def ({type, freq?, q?}), randomizing freq/q ranges. */
-  _resolveFilter(filterDef) {
-    const r = { type: filterDef.type };
-    if (filterDef.freq !== undefined) r.freq = this._resolveValue(filterDef.freq);
-    if (filterDef.q !== undefined) r.q = this._resolveValue(filterDef.q);
-    return r;
-  }
+  // Randomization ([min,max] → concrete) lives in synth/randomize.js; these thin
+  // methods preserve the instance surface (soundboard editor / tests call them).
+  _resolveValue(v) { return resolveValue(v); }
+  _resolveSynth(synthDef) { return resolveSynth(synthDef); }
+  _resolveFilter(filterDef) { return resolveFilter(filterDef); }
 
   // ─── Synth: Shared Builders (noise / filter) ───────────────────
 
+  // The DSP node builders live in synth/dsp.js (stateless, take `ctx`). These thin
+  // methods keep the per-instance memo caches (`_noiseBuffer`, `_distortionCurves`)
+  // and the reverb graph in the class while delegating construction.
+
   /** Lazily build & cache a 2s mono white-noise buffer for `type:"noise"` layers. */
   _getNoiseBuffer() {
-    if (this._noiseBuffer) return this._noiseBuffer;
-    const length = Math.floor(this.ctx.sampleRate * 2);
-    const buffer = this.ctx.createBuffer(1, length, this.ctx.sampleRate);
-    const data = buffer.getChannelData(0);
-    for (let i = 0; i < length; i++) data[i] = Math.random() * 2 - 1;
-    this._noiseBuffer = buffer;
-    return buffer;
+    return (this._noiseBuffer ??= createNoiseBuffer(this.ctx));
   }
 
-  /**
-   * Build a BiquadFilter from a resolved filter def and wire `inputNode → filter`.
-   * Returns the filter (the new tail) or null when there's no filter def.
-   * Used for both the synth-level tone filter and per-noise-layer colouring.
-   */
   _buildSynthFilter(filterDef, inputNode) {
-    if (!filterDef) return null;
-    const filter = this.ctx.createBiquadFilter();
-    filter.type = filterDef.type || 'lowpass';
-    filter.frequency.value = filterDef.freq ?? 2000;
-    if (filterDef.q !== undefined) filter.Q.value = filterDef.q;
-    inputNode.connect(filter);
-    return filter;
+    return buildSynthFilter(this.ctx, filterDef, inputNode);
   }
 
   /** Cached WaveShaper curve for a distortion `amount` (0..1). Classic soft-clip shape. */
@@ -689,12 +630,7 @@ export class SoundManager {
     const key = Math.round(amount * 100);
     let curve = this._distortionCurves.get(key);
     if (curve) return curve;
-    const k = amount * 400, n = 2048, deg = Math.PI / 180;
-    curve = new Float32Array(n);
-    for (let i = 0; i < n; i++) {
-      const x = (i * 2) / n - 1;
-      curve[i] = ((3 + k) * x * 20 * deg) / (Math.PI + k * Math.abs(x));
-    }
+    curve = makeDistortionCurve(amount);
     this._distortionCurves.set(key, curve);
     return curve;
   }
@@ -702,11 +638,7 @@ export class SoundManager {
   /** Build a WaveShaper distortion (amount 0..1) and wire `inputNode → shaper`, or null. */
   _buildDistortion(amount, inputNode) {
     if (!amount) return null;
-    const ws = this.ctx.createWaveShaper();
-    ws.curve = this._distortionCurve(amount);
-    ws.oversample = '2x';
-    inputNode.connect(ws);
-    return ws;
+    return buildDistortion(this.ctx, this._distortionCurve(amount), inputNode);
   }
 
   /**
@@ -749,163 +681,15 @@ export class SoundManager {
    * (in cents) and start it. Returns the LFO oscillator (caller stops it) or null.
    */
   _buildVibrato(vibratoDef, oscillators, now) {
-    if (!vibratoDef || !oscillators.length) return null;
-    const vib = this.ctx.createOscillator();
-    vib.type = 'sine';
-    vib.frequency.value = vibratoDef.freq || 5;
-    const vibGain = this.ctx.createGain();
-    vibGain.gain.value = vibratoDef.depth || 15; // cents
-    vib.connect(vibGain);
-    for (const osc of oscillators) vibGain.connect(osc.detune);
-    vib.start(now);
-    return vib;
+    return buildVibrato(this.ctx, vibratoDef, oscillators, now);
   }
 
   // ─── Synth: One-Shot Builder ────────────────────────────────────
 
+  // Voice construction lives in synth/voices.js; this wrapper injects the audio kit
+  // (ctx + buffers + reverb graph + stateful node builders). Behaviour unchanged.
   _buildSynthOneShot(rawSynthDef, peakVolume, outputNode, startAt) {
-    const synthDef = this._resolveSynth(rawSynthDef);
-    // `startAt` lets MIDI notes schedule ahead on the audio clock; default = immediate.
-    const now = startAt ?? this.ctx.currentTime;
-
-    // Build layer list (backward compat: single-oscillator shorthand)
-    const layers = synthDef.layers || [{
-      type: synthDef.type || 'sine',
-      freq: synthDef.freq || 440,
-      freqEnd: synthDef.freqEnd,
-      gain: 1.0,
-      detune: synthDef.detune || 0,
-    }];
-
-    // Determine if envelope shaping is needed:
-    // - Oscillator layers always need an envelope (they'd play forever otherwise)
-    // - File-only layers with no explicit timing play at constant volume naturally
-    const hasOscLayers = layers.some(l => l.type !== 'file');
-    const hasExplicitEnvelope = synthDef.duration !== undefined ||
-                                synthDef.attack !== undefined ||
-                                synthDef.decay !== undefined;
-    const useEnvelope = hasOscLayers || hasExplicitEnvelope;
-
-    // Auto-detect duration: explicit > longest file buffer > 0.5s default
-    let duration = synthDef.duration;
-    if (!duration) {
-      const fileDurations = layers
-        .filter(l => l.type === 'file')
-        .map(l => { const b = this.buffers.get(l.file); return b ? b.duration : 0; });
-      duration = fileDurations.length > 0 ? Math.max(...fileDurations) : 0.5;
-    }
-
-    const attack = synthDef.attack || 0.005;
-    const decay = synthDef.decay || (duration - attack);
-
-    // Envelope gain node — shaped or flat depending on layer composition
-    const envelope = this.ctx.createGain();
-    if (useEnvelope) {
-      envelope.gain.setValueAtTime(0, now);
-      envelope.gain.linearRampToValueAtTime(peakVolume, now + attack);
-      envelope.gain.exponentialRampToValueAtTime(0.001, now + attack + decay);
-    } else {
-      // Flat gain — file layers play at natural volume, no fade
-      envelope.gain.value = peakVolume;
-    }
-    // Post-envelope chain: distortion (guitar-amp grit) → tone filter. Tail feeds dry + reverb.
-    const tail = this._buildVoiceTail(synthDef, envelope);
-    tail.connect(outputNode);
-
-    // Build layers — oscillators, noise, and file buffer sources share the same envelope
-    const oscillators = [];
-    const sources = [];
-    for (const layer of layers) {
-      if (layer.type === 'file') {
-        // ── File layer ──
-        const buffer = this.buffers.get(layer.file);
-        if (!buffer) continue;
-
-        const source = this.ctx.createBufferSource();
-        source.buffer = buffer;
-        source.playbackRate.value = layer.playbackRate || 1;
-
-        if (layer.gain !== undefined && layer.gain !== 1.0) {
-          const layerGain = this.ctx.createGain();
-          layerGain.gain.value = layer.gain;
-          source.connect(layerGain);
-          layerGain.connect(envelope);
-        } else {
-          source.connect(envelope);
-        }
-
-        source.start(now);
-        // Only force-stop files if envelope is shaping the duration
-        if (useEnvelope) source.stop(now + duration + 0.05);
-        sources.push(source);
-      } else if (layer.type === 'noise') {
-        // ── Noise layer ── (loops the noise buffer; envelope shapes it)
-        const source = this._buildNoiseLayer(layer, envelope);
-        source.start(now);
-        if (useEnvelope) source.stop(now + duration + 0.05);
-        sources.push(source);
-      } else {
-        // ── Oscillator layer ──
-        const osc = this.ctx.createOscillator();
-        osc.type = layer.type || 'sine';
-        osc.frequency.setValueAtTime(layer.freq || 440, now);
-        if (layer.freqEnd) {
-          osc.frequency.exponentialRampToValueAtTime(layer.freqEnd, now + duration);
-        }
-        if (layer.detune) osc.detune.value = layer.detune;
-
-        if (layer.gain !== undefined && layer.gain !== 1.0) {
-          const layerGain = this.ctx.createGain();
-          layerGain.gain.value = layer.gain;
-          osc.connect(layerGain);
-          layerGain.connect(envelope);
-        } else {
-          osc.connect(envelope);
-        }
-
-        osc.start(now);
-        osc.stop(now + duration + 0.05);
-        oscillators.push(osc);
-      }
-    }
-
-    // Optional vibrato (pitch LFO) — modulates oscillator detune in cents.
-    const vib = this._buildVibrato(synthDef.vibrato, oscillators, now);
-    if (vib) vib.stop(now + duration + 0.05);
-
-    // Optional LFO gain modulation (warble/pulse effect)
-    if (synthDef.lfo) {
-      const lfo = this.ctx.createOscillator();
-      lfo.type = 'sine';
-      lfo.frequency.value = synthDef.lfo.freq || 4;
-      const lfoGain = this.ctx.createGain();
-      lfoGain.gain.value = peakVolume * (synthDef.lfo.depth || 0.5);
-      lfo.connect(lfoGain);
-      lfoGain.connect(envelope.gain);
-      lfo.start(now);
-      // Always stop the LFO — a file-only layer set (useEnvelope false) would
-      // otherwise leak the oscillator forever. `duration` is defined on all paths.
-      lfo.stop(now + duration + 0.05);
-    }
-
-    // Reverb send — split dry/wet so total volume stays constant
-    if (synthDef.reverb && this.reverbConvolver) {
-      const wet = typeof synthDef.reverb === 'number' ? synthDef.reverb : 0.4;
-      const dryScale = 1 - wet * 0.5;
-      if (useEnvelope) {
-        envelope.gain.cancelScheduledValues(now);
-        envelope.gain.setValueAtTime(0, now);
-        envelope.gain.linearRampToValueAtTime(peakVolume * dryScale, now + attack);
-        envelope.gain.exponentialRampToValueAtTime(0.001, now + attack + decay);
-      } else {
-        envelope.gain.value = peakVolume * dryScale;
-      }
-
-      // Tap the wet send post-filter so reverb is coloured by the tone filter too.
-      this._applyReverbSend(tail, wet * peakVolume);
-    }
-
-    return { oscillators, sources, gain: envelope, endTime: now + duration };
+    return buildSynthOneShot(this._kit(), rawSynthDef, peakVolume, outputNode, startAt);
   }
 
   // ─── Synth: Loop Builder ────────────────────────────────────────
@@ -1086,87 +870,19 @@ export class SoundManager {
 
   // ─── Synth: MIDI Tune Rendering ─────────────────────────────────
 
-  /** Clone a synth def, scaling oscillator-layer freq/freqEnd by `ratio` (noise/file untouched). */
-  _transposeSynth(instrument, ratio) {
-    const scale = (v) => Array.isArray(v) ? [v[0] * ratio, v[1] * ratio] : v * ratio;
-    const clone = { ...instrument };
-    if (instrument.layers) {
-      clone.layers = instrument.layers.map(l => {
-        if (l.type === 'file' || l.type === 'noise') return { ...l };
-        const r = { ...l };
-        if (l.freq !== undefined) r.freq = scale(l.freq);
-        if (l.freqEnd !== undefined) r.freqEnd = scale(l.freqEnd);
-        return r;
-      });
-    } else {
-      if (instrument.freq !== undefined) clone.freq = scale(instrument.freq);
-      if (instrument.freqEnd !== undefined) clone.freqEnd = scale(instrument.freqEnd);
-    }
-    return clone;
-  }
+  // Pure MIDI helpers live in synth/midiVoice.js; the two note renderers live in
+  // synth/voices.js. These thin methods preserve the instance surface and inject
+  // the audio kit for the renderers.
+  _transposeSynth(instrument, ratio) { return transposeSynth(instrument, ratio); }
+  _midiNotesFor(synthDef, midiData) { return midiNotesFor(synthDef, midiData); }
+  _midiVoiceSetup(synthDef) { return midiVoiceSetup(synthDef); }
 
-  /**
-   * Resolve which note list a synth plays from a parsed MIDI file: a specific track
-   * (by name or index, via `synth.midi.track`) for multi-instrument songs, else the
-   * merged note list. Falls back to merged if the track isn't found.
-   */
-  _midiNotesFor(synthDef, midiData) {
-    const m = synthDef.midi;
-    const track = (m && typeof m === 'object') ? m.track : undefined;
-    if (track === undefined || track === null || !midiData.tracks) return midiData.notes;
-    const t = typeof track === 'number'
-      ? midiData.tracks[track]
-      : midiData.tracks.find(x => x.name === track);
-    return (t && t.notes) || midiData.notes;
-  }
-
-  /** One-time per-tune setup shared by every note: instrument timbre, ref pitch, transpose, tempo. */
-  _midiVoiceSetup(synthDef) {
-    const cfg = synthDef.midi;
-    const transpose = (cfg && typeof cfg === 'object' && cfg.transpose) || 0;
-    const tempo = (cfg && typeof cfg === 'object' && cfg.tempo) || 1; // >1 = faster
-    const timeScale = tempo > 0 ? 1 / tempo : 1;
-    const { midi, ...instrument } = synthDef; // instrument = synth minus the `midi` key
-    const layers = instrument.layers || [{ type: instrument.type || 'sine', freq: instrument.freq || 440 }];
-    const ref = layers.find(l => l.type !== 'file' && l.type !== 'noise');
-    let refFreq = ref ? (Array.isArray(ref.freq) ? ref.freq[0] : ref.freq) : 440;
-    if (!refFreq) refFreq = 440;
-    let atk = Array.isArray(instrument.attack) ? instrument.attack[0] : instrument.attack;
-    if (typeof atk !== 'number') atk = 0.01;
-    return { instrument, refFreq, atk, transpose, timeScale };
-  }
-
-  /** Build ONE transposed voice for a MIDI note at absolute `when`. Returns {oscillators,sources,endTime}. */
   _renderMidiNote(setup, note, peakVolume, outputNode, when, suppressReverb) {
-    const noteFreq = 440 * Math.pow(2, (note.midi + setup.transpose - 69) / 12);
-    const dur = Math.max(0.04, note.duration * setup.timeScale);
-    const voice = this._transposeSynth(setup.instrument, noteFreq / setup.refFreq);
-    voice.duration = dur;
-    voice.attack = Math.min(setup.atk, dur * 0.4);
-    delete voice.decay; // let decay fill the note (duration − attack)
-    // For loops, the reverb send lives at the loop's output gain (so mute/fade kills the
-    // wet too) — render notes dry to avoid a reverb wash that bypasses the loop gain.
-    if (suppressReverb) delete voice.reverb;
-    const gain = peakVolume * (0.3 + 0.7 * note.velocity); // velocity → loudness
-    const built = this._buildSynthOneShot(voice, gain, outputNode, when);
-    return { oscillators: built.oscillators, sources: built.sources, endTime: built.endTime, lastEndNode: built.oscillators[0] || built.sources[0] };
+    return renderMidiNote(this._kit(), setup, note, peakVolume, outputNode, when, suppressReverb);
   }
 
-  /**
-   * Render ONE pass of a parsed MIDI tune through `synthDef` — used by the one-shot path
-   * (a tune is short, so a single burst is fine). The looping path schedules incrementally.
-   */
   _renderMidiNotes(synthDef, midiData, peakVolume, outputNode, startTime, suppressReverb = false) {
-    const setup = this._midiVoiceSetup(synthDef);
-    const oscillators = [], sources = [];
-    let endTime = startTime, lastEndNode = null;
-    for (const note of this._midiNotesFor(synthDef, midiData)) {
-      const v = this._renderMidiNote(setup, note, peakVolume, outputNode, startTime + note.time * setup.timeScale, suppressReverb);
-      oscillators.push(...v.oscillators);
-      sources.push(...v.sources);
-      if (v.endTime >= endTime) { endTime = v.endTime; lastEndNode = v.lastEndNode; }
-    }
-    return { oscillators, sources, endTime, lastEndNode };
+    return renderMidiNotes(this._kit(), synthDef, midiData, peakVolume, outputNode, startTime, suppressReverb);
   }
 
   /**
@@ -1315,9 +1031,7 @@ export class SoundManager {
   }
 
   /** Total length (seconds) spanned by a seconds-based note list. */
-  _notesDuration(notes) {
-    return (notes || []).reduce((m, n) => Math.max(m, (n.time || 0) + (n.duration || 0)), 0);
-  }
+  _notesDuration(notes) { return notesDuration(notes); }
 
   /**
    * Live-swap a running MIDI loop's notes (and optionally loop length) WITHOUT restarting —

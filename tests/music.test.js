@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { MusicDirector } from '/engine/audio/MusicDirector.js';
-import { addStem, renameStem } from '/editors/musicModel.js';
+import { addStem, renameStem } from '/editors/music/model/musicModel.js';
 
 // Mock SoundManager recording the loop calls the director makes.
 class MockSound {

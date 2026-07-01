@@ -10,7 +10,7 @@ const {
   renameAnimState, cloneAnimState, deleteAnimState,
   poseTimes, listPartRows, movePose, deletePose, keyPose,
   defaultFor, coerceToShapeOf, coerceToTrack,
-} = await import('/editors/artKeyframes.js');
+} = await import('/editors/art/model/keyframes.js');
 
 function fixture() {
   return {

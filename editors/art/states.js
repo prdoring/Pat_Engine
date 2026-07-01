@@ -1,9 +1,9 @@
 // State system management for the art editor.
 // Handles state discovery, state bar UI, rename/delete state operations.
 
-import { ctx } from './artEditorCtx.js';
-import { modalPrompt } from './editorShared.js';
-import { renameAnimState, cloneAnimState, deleteAnimState } from './artKeyframes.js';
+import { ctx } from './ctx.js';
+import { modalPrompt } from '/editors/shared/index.js';
+import { renameAnimState, cloneAnimState, deleteAnimState } from './model/keyframes.js';
 
 // ─── State Discovery ─────────────────────────────────────────────────────────
 

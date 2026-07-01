@@ -178,6 +178,78 @@ export function sampleClips(shapeAnim, state, clocks) {
   return out;
 }
 
+// ── Pose application (sampled map → shape) ───────────────────────────────────
+//
+// A sampled clip yields a flat { propPath: value } map (see sampleClips). These
+// helpers apply that map onto a shape (clone-on-write) and crossfade between two
+// sampled poses during a state transition. Pure — no canvas, no renderer import —
+// so runtime (ArtInterpreter) and the editor timeline share one implementation.
+
+const _idxRe = /^\d+$/;
+const _idx = (p) => (_idxRe.test(p) ? Number(p) : p);
+
+/**
+ * Merge a sampled { propPath: value } map onto a fresh clone of `shape`. Dotted
+ * paths (`setup.alpha`, `points.2`, `segments.0.1`) clone-on-write down the path
+ * so the registry/raw art is never mutated. Always shallow-clones the top level
+ * and clones each nested container the first time it is touched.
+ */
+export function applySampledOverrides(shape, sampled) {
+  const out = { ...shape };
+  for (const path in sampled) {
+    const v = sampled[path];
+    const parts = path.split('.');
+    if (parts.length === 1) { out[parts[0]] = v; continue; }
+    let node = out, src = shape;
+    for (let i = 0; i < parts.length - 1; i++) {
+      const key = _idx(parts[i]);
+      const srcChild = src ? src[key] : undefined;
+      if (node[key] === srcChild) {  // not yet cloned on this output branch
+        node[key] = Array.isArray(srcChild) ? srcChild.slice() : { ...(srcChild || {}) };
+      }
+      node = node[key];
+      src = srcChild;
+    }
+    node[_idx(parts[parts.length - 1])] = v;
+  }
+  return out;
+}
+
+/** Lerp two sampled pose maps (used for the state-entry/exit pose crossfade). */
+export function lerpPoseMaps(from, to, t) {
+  const out = {};
+  const keys = new Set([...Object.keys(from), ...(to ? Object.keys(to) : [])]);
+  for (const k of keys) {
+    const a = from[k], b = to ? to[k] : undefined;
+    if (a === undefined) out[k] = b;
+    else if (b === undefined) out[k] = a;
+    else out[k] = lerpKeyValue(a, b, t);
+  }
+  return out;
+}
+
+/**
+ * Pose-snapshot crossfade. On a state change the entity's `transition` froze the
+ * previous frame's composited pose per shape (`_snapPose`, keyed by the raw shape
+ * object). While the static-override blend is in progress (`blendPrev`/`blendT`),
+ * ease from that frozen pose into the freshly-sampled pose — killing the pop when
+ * an ambient clip is at an arbitrary phase at entry, or a one-shot holds its end
+ * frame at exit. Always records the (possibly blended) live pose so the next state
+ * change snapshots a continuous value. No-op (returns `sampled`) when the entity
+ * carries no pose store (props/title) or no blend window is open.
+ */
+export function applyPoseBlend(dc, rawShape, sampled) {
+  const t = dc.transition;
+  if (!t || !t._livePose) return sampled;
+  let result = sampled;
+  if (dc.blendPrev != null && dc.blendT < 1 && t._snapPose) {
+    const from = t._snapPose.get(rawShape);
+    if (from) result = lerpPoseMaps(from, sampled || {}, dc.blendT);
+  }
+  if (result) t._livePose.set(rawShape, result);
+  return result;
+}
+
 // ── Authoring helper (editor) ────────────────────────────────────────────────
 
 /**

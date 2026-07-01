@@ -1,10 +1,10 @@
-// Unit tests for the unified canvas/panel edit router (editors/artEditorCtx.js).
+// Unit tests for the unified canvas/panel edit router (editors/art/ctx.js).
 // commitShapeEdit routes an edit to keyframe / state-override / base per the same
 // rule the props panel uses; editValueAt reads the on-screen value at the playhead.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-const { ctx, commitShapeEdit, editValueAt } = await import('/editors/artEditorCtx.js');
+const { ctx, commitShapeEdit, editValueAt } = await import('/editors/art/ctx.js');
 
 /** Reset the shared editor ctx to a known editing context + fresh asset/shape. */
 function setup({ state = 'BASE', clip = '*', playhead = 0, autoKey = true, playing = false, shape } = {}) {

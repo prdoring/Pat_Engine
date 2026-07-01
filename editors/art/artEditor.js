@@ -1,17 +1,17 @@
 // Art Editor — entry point that wires all editor modules together.
 // Uses drawUnifiedArt for WYSIWYG preview of any art asset.
 
-import { ctx, FILE_DATA, normalizeArtData, getShapeAtPath, SHAPE_ICONS } from './artEditorCtx.js';
-import { SaveManager, PreviewCanvas, Button, createResizer, isModalOpen, modalAlert, modalConfirm } from './editorShared.js';
-import { loadManifest, getManifest } from './editorManifest.js';
-import { buildSidebar } from './artEditorSidebar.js';
-import { buildStateBar, discoverStates } from './artEditorStates.js';
-import { createHistory } from './artHistory.js';
-import { buildSidebarShapeTree, deleteSelectedShape, duplicateSelectedShape, moveSelectedShape, mirrorSelectedShape, copySelectedShape, pasteShape } from './artEditorTree.js';
-import { buildShapeProps } from './artEditorProps.js';
-import { startAnimation, stopAnimation, startRenderLoop, stopRenderLoop, buildControls, setupPreviewInteraction, nudgeSelectedShape } from './artEditorPreview.js';
-import { createArtTimeline } from './artEditorTimeline.js';
-import { deleteKeyframe } from './artKeyframes.js';
+import { ctx, FILE_DATA, normalizeArtData, getShapeAtPath, SHAPE_ICONS } from './ctx.js';
+import { SaveManager, PreviewCanvas, Button, createResizer, isModalOpen, modalAlert, modalConfirm } from '/editors/shared/index.js';
+import { loadManifest, getManifest } from '/editors/shared/index.js';
+import { buildSidebar } from './sidebar.js';
+import { buildStateBar, discoverStates } from './states.js';
+import { createHistory } from './model/history.js';
+import { buildSidebarShapeTree, deleteSelectedShape, duplicateSelectedShape, moveSelectedShape, mirrorSelectedShape, copySelectedShape, pasteShape } from './tree/tree.js';
+import { buildShapeProps } from './props/props.js';
+import { startAnimation, stopAnimation, startRenderLoop, stopRenderLoop, buildControls, setupPreviewInteraction, nudgeSelectedShape } from './preview/preview.js';
+import { createArtTimeline } from './timeline.js';
+import { deleteKeyframe } from './model/keyframes.js';
 
 // ─── Mount / Unmount ─────────────────────────────────────────────────────────
 

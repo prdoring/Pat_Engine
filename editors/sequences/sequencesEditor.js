@@ -6,29 +6,17 @@ import { VFX_DEFS } from '/engine/data/vfx.js';
 import { SoundManager } from '/engine/audio/SoundManager.js';
 import { EffectsRenderer } from '/engine/render/EffectsRenderer.js';
 import { drawUnifiedArt } from '/engine/render/ArtInterpreter.js';
-import { loadManifest } from './editorManifest.js';
+import { loadManifest } from '/editors/shared/index.js';
 import {
   SaveManager,
   NumberSlider, Select, TextInput, Toggle, Button,
   PropertyGroup, EditorPreviewCamera, createResizer,
-} from './editorShared.js';
-
-// ─── Constants ───────────────────────────────────────────────────────────────
-
-const TRACK_ORDER = ['sfx', 'vfx', 'loopStart', 'loopStop', 'signal'];
-const TRACK_LABELS = { sfx: 'SFX', vfx: 'VFX', loopStart: 'Loop \u25B6', loopStop: 'Loop \u25A0', signal: 'SIG' };
-const TRACK_COLORS = {
-  sfx: '#d4a056',
-  vfx: '#33ddcc',
-  loopStart: '#66cc66',
-  loopStop: '#cc6666',
-  signal: '#aa88dd',
-};
-const TIMELINE_BG = '#0a0e16';
-const TIMELINE_TRACK_HEIGHT = 32;
-const TIMELINE_HEADER_HEIGHT = 24;
-const TIMELINE_PADDING = 8;
-const MARKER_RADIUS = 6;
+} from '/editors/shared/index.js';
+import {
+  TRACK_ORDER, TRACK_LABELS, TRACK_COLORS,
+  TIMELINE_BG, TIMELINE_TRACK_HEIGHT, TIMELINE_HEADER_HEIGHT, TIMELINE_PADDING, MARKER_RADIUS,
+  KNOWN_SIGNALS,
+} from './constants.js';
 
 // ─── State ───────────────────────────────────────────────────────────────────
 
@@ -1388,14 +1376,6 @@ function buildLoopStopProps(step, set) {
   const fadeOutW = NumberSlider('Fade Out (s)', 0, 5, 0.1, step.fadeOut || 0, v => set('fadeOut', v));
   propsEl.appendChild(fadeOutW.el);
 }
-
-const KNOWN_SIGNALS = [
-  { value: 'setState', label: 'Set Art State' },
-  { value: 'clearState', label: 'Clear Art State' },
-  { value: 'stopAllLoops', label: 'Stop All Loops' },
-  { value: 'removeEntity', label: 'Remove Entity' },
-  { value: '_custom', label: 'Custom...' },
-];
 
 function buildSignalProps(step, set) {
   const isKnown = KNOWN_SIGNALS.some(s => s.value === step.name);

@@ -1,4 +1,4 @@
-// editors/pianoRoll.js
+// editors/music/pianoRoll.js
 // A self-contained canvas piano-roll for editing one stem's note pattern (beats), generic and
 // game-agnostic. Layout top→bottom: a minimap (whole-loop overview with the visible window +
 // global playhead), a bar ruler (drag to move the playhead), the pitch×time grid, and a velocity
@@ -6,12 +6,12 @@
 // lane or by Alt-dragging a note, delete with right-click or Delete, click the piano keys to
 // audition a pitch, Ctrl+wheel to zoom (Shift+wheel pans, wheel scrolls pitch), drag the minimap
 // to scroll. The static layers are cached to an offscreen canvas so the playhead loop only blits +
-// draws lines. Note math goes through editors/midiModel.js; the host owns the notes array +
+// draws lines. Note math goes through editors/music/model/midiModel.js; the host owns the notes array +
 // persistence (`onEdit`), auditions via `previewNote`, and seeks playback via `onSeek`.
 import {
   addNote, moveNote, resizeNote, deleteNote, setVelocity, loopBeats, repeatGhosts, PITCH_MIN, PITCH_MAX,
-} from './midiModel.js';
-import { isModalOpen } from './editorShared.js';
+} from './model/midiModel.js';
+import { isModalOpen } from '/editors/shared/index.js';
 
 const GUTTER = 44;  // piano-key gutter width (px)
 const MINI = 16;    // top minimap height

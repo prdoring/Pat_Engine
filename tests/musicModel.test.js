@@ -9,7 +9,7 @@ const {
   newSong, uniqueStemName, addStem, removeStem, renameStem,
   reorderStem, renameVibe, deleteVibe, setVibeDoc,
   cloneStem, cloneVibe, uniqueSongId, renameSong, duplicateSong, deleteSong,
-} = await import('/editors/musicModel.js');
+} = await import('/editors/music/model/musicModel.js');
 
 // A small song fixture, fresh per test (helpers mutate in place).
 const make = () => ({

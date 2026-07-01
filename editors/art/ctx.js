@@ -6,7 +6,7 @@ import { sampleTrack } from '/engine/render/interp.js';
 import {
   keyframeableProps, getTrack, setKeyframe, ensureClip, deleteTrack,
   coerceToTrack, coerceToShapeOf, defaultFor, getPropValue,
-} from './artKeyframes.js';
+} from './model/keyframes.js';
 
 /** Shared mutable state for the art editor. */
 export const ctx = {

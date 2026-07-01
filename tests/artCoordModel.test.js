@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 
 const {
   isDraggableCoord, addCoordDelta, negateCoord, addPointDelta,
-} = await import('/editors/artCoordModel.js');
+} = await import('/editors/art/model/coordModel.js');
 
 test('isDraggableCoord: numbers and objects yes, var-ref strings no', () => {
   assert.ok(isDraggableCoord(0.5));

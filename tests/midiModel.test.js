@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 const {
   snap, loopBeats, addNote, moveNote, resizeNote, deleteNote, setVelocity, sortNotes, importMidiTrack,
   PITCH_MIN, PITCH_MAX,
-} = await import('/editors/midiModel.js');
+} = await import('/editors/music/model/midiModel.js');
 
 const OPTS = { grid: 0.25, loopBeats: 16 }; // 4 bars × 4 beats, 1/16 grid
 

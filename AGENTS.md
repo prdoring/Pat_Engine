@@ -580,9 +580,9 @@ gesture-scoped **undo/redo** (`Ctrl+Z`/`Shift+Z`/`Y`, per-asset, restore-in-plac
 click-to-select** + drag, **vertex/radius handles**, tree **hide/solo/lock**, arrow-key nudge,
 copy/paste shapes (`Ctrl+C/V`), an asset-level settings panel (select nothing), live "= N px"
 coord readouts, a **part-centric keyframe timeline**, and `effectRef` for embedding VFX effects.
-All CRUD/naming uses themed modals (`modal*` in `editorShared.js`), not native `prompt`/`confirm`.
-The pure, DOM-free logic lives in `editors/art{AssetOps,CoordModel,History,Keyframes}.js`
-(unit-tested in Node like `musicModel.js`).
+All CRUD/naming uses themed modals (`modal*` in `editors/shared/modals.js`), not native `prompt`/`confirm`.
+The pure, DOM-free logic lives in `editors/art/model/{assetOps,coordModel,history,keyframes}.js`
+(unit-tested in Node like `music/model/musicModel.js`).
 
 The **keyframe timeline is a dope sheet with one row per *part* (shape), not per variable**: a diamond
 marks any time that part has ≥1 keyed property (a "pose"); drag it to retime the whole pose, right-click
@@ -591,21 +591,21 @@ sub-rows (fine control). Only animated parts (plus the selected one) get rows. A
 (default ON, togglable): with a part selected, scrub the playhead and tweak the part in the props panel —
 each change writes a keyframe at that time. The props widgets are **time-aware** (they show the *sampled*
 value at the playhead), so an edit means "make it look like this here." This is done by a transparent
-**anim proxy** (`createAnimProxy` in `artEditorCtx.js`) that composes *outside* the state-override proxy:
+**anim proxy** (`createAnimProxy` in `art/ctx.js`) that composes *outside* the state-override proxy:
 a keyframed prop READS its sampled value and a SET writes a keyframe instead of the base. The rule keys off
 **track-existence** (an existing track always keys; auto-key only *creates* a new track, and only at t>0 so
 static authoring at t=0 still edits the base). A single **"Key part"** button plus a collapsed **"Advanced
 channels"** disclosure (per-property key/loop/clear + a guided "looping motion" generator) cover explicit
 and fine control. Transport is forked from the MIDI editor (`Space` play/pause, ruler scrub,
 `Ctrl`/`Shift`+wheel zoom/pan, Loop-vs-Once clips). Pure part/pose ops (`listPartRows`, `poseTimes`,
-`movePose`, `deletePose`, `keyPose`, coercion helpers) live in `editors/artKeyframes.js`. The props panel
+`movePose`, `deletePose`, `keyPose`, coercion helpers) live in `editors/art/model/keyframes.js`. The props panel
 reflects the animation **live** — while scrubbing (`refreshPropsForScrub`) and while playing
 (`syncPlaybackProps` in the render loop, throttled/focus-guarded) — so values animate with the preview
 instead of freezing until pause. Point/vertex number fields are time-aware too (`livePointRow` shows the
 sampled value via `editValueAt` and writes via `commitShapeEdit`).
 
 **On-canvas drags edit the same way the panel does.** Move / vertex / radius / rotate drags (and arrow-key
-nudge) route through **`commitShapeEdit(rawShape, propPath, value)`** (artEditorCtx.js) — the single edit
+nudge) route through **`commitShapeEdit(rawShape, propPath, value)`** (art/ctx.js) — the single edit
 router that both the panel and the canvas use: KEYFRAME into the key-target clip at the playhead (seeding a
 t=0 rest key) when a track exists OR auto-key is on and playhead>0 (never while playing) → else STATE
 OVERRIDE (`states[state]`) → else BASE. `propPath` may be dotted (`points.2`, `segments.0.1`,
@@ -615,7 +615,7 @@ grab starts where the shape is. Don't reintroduce direct base mutation in the dr
 `commitShapeEdit` so state/keyframe context is always honored.
 
 **Preview render loop (architecture — don't regress):** the art-editor preview runs an **always-on
-render loop** (`startRenderLoop`/`stopRenderLoop`, artEditorPreview.js; started in `mount`, stopped in
+render loop** (`startRenderLoop`/`stopRenderLoop`, art/preview/preview.js; started in `mount`, stopped in
 `unmount`) that calls `renderPreview()` **every frame while mounted**. Play/pause toggles ONLY
 `ctx.animPlaying` = whether animation *time* advances (`timeline.advance`); painting is unconditional. So
 the preview is always a live reflection of state — zoom, pan, undo/redo, edits, selection — with **no

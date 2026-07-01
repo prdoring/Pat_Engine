@@ -9,317 +9,20 @@
  *
  * Effect definitions use composable rendering primitives organized into
  * time-windowed phases (phased) or direct parametric rendering (trail/beam).
- *
- * Value types:
- *   static number:  0.5
- *   animated:       { from: 0, to: 1 }             — lerp over phase progress
- *   modulated:      { from: 0.8, to: 0, modulate: { freq, amp } }  — lerp + sin
- *   oscillating:    { base: 10, amplitude: 5, freq: 0.01 }         — sin wave (persistent)
+ * Internals: value/color/shadow resolution → ./vfx/resolve.js; the phased
+ * primitive renderers + dispatch table → ./vfx/primitives.js. This entry keeps
+ * the phased-effect orchestration and the trail/beam renderers, and re-exports
+ * the pure resolvers so existing importers keep working.
  */
+
+import { resolveValue, resolveColor, applyStateOverrides, warnOnce } from './vfx/resolve.js';
+import { PRIMITIVE_RENDERERS } from './vfx/primitives.js';
+
+// Re-export the pure resolvers (they now live in the canvas-free ./vfx/resolve.js
+// leaf) so `import { resolveValue, resolveColor, applyStateOverrides }` still resolves.
+export { resolveValue, resolveColor, applyStateOverrides };
 
 const PI2 = Math.PI * 2;
-
-// ─── Dev-mode validation (warn once per unknown key) ─────────────────────────
-const _warnedKeys = new Set();
-function _warnOnce(key, msg) {
-  if (_warnedKeys.has(key)) return;
-  _warnedKeys.add(key);
-  console.warn(msg);
-}
-
-// ─── Value resolution ────────────────────────────────────────────────────────
-
-/**
- * Resolve a numeric value given phase progress and current time.
- * @param {number|object} val - Static, animated, modulated, or oscillating value
- * @param {number|null} phaseProgress - 0-1 within the phase (null for persistent)
- * @param {number} now - performance.now() for oscillating values
- * @returns {number}
- */
-export function resolveValue(val, phaseProgress, now) {
-  if (typeof val === 'number') return val;
-  if (val == null) return 0;
-  if (typeof val !== 'object') return 0;
-
-  // Animated: { from, to } with optional modulate
-  if ('from' in val && 'to' in val) {
-    const t = phaseProgress ?? 0;
-    let result = val.from + (val.to - val.from) * t;
-    if (val.modulate) {
-      const m = val.modulate;
-      result += Math.sin((phaseProgress ?? 0) * (m.freq || 1) * PI2) * (m.amp || 0);
-    }
-    return result;
-  }
-
-  // Oscillating: { base, amplitude, freq }
-  if ('base' in val) {
-    return val.base + Math.sin(now * (val.freq || 1) * PI2) * (val.amplitude || 0);
-  }
-
-  return 0;
-}
-
-/**
- * Resolve a color value, handling entity color variants.
- * @param {string|object} val - Color string or { local, remote } object (two-variant entity color)
- * @param {object} opts - { isLocal }
- * @returns {string}
- */
-export function resolveColor(val, opts) {
-  if (typeof val === 'string') return val;
-  if (val && typeof val === 'object' && ('local' in val || 'remote' in val)) {
-    // Missing/undefined isLocal is treated as LOCAL (single-player default).
-    const isLocal = !opts || opts.isLocal !== false;
-    return isLocal ? (val.local || val.remote) : (val.remote || val.local);
-  }
-  return '#ffffff';
-}
-
-/**
- * Resolve a shadow config.
- * @param {object} shadow - { color, blur } where blur may be animatable
- * @param {string} layerColor - Resolved layer color (for "$color" references)
- * @param {number|null} phaseProgress
- * @param {number} now
- * @param {object} opts
- * @returns {{ color: string, blur: number }}
- */
-function resolveShadow(shadow, layerColor, phaseProgress, now, opts) {
-  if (!shadow) return { color: 'transparent', blur: 0 };
-  const color = shadow.color === '$color' ? layerColor : resolveColor(shadow.color, opts);
-  const blur = resolveValue(shadow.blur, phaseProgress, now);
-  return { color, blur };
-}
-
-/**
- * Apply state overrides to a layer definition (shallow merge).
- * Returns a new object with overrides applied, or the original if no match.
- */
-export function applyStateOverrides(layer, state) {
-  if (!state || !layer.stateOverrides || !layer.stateOverrides[state]) return layer;
-  return { ...layer, ...layer.stateOverrides[state] };
-}
-
-// ─── Primitive renderers ─────────────────────────────────────────────────────
-
-function _filledCircle(ctx, x, y, radius, color, alpha, shadow) {
-  if (radius <= 0 || alpha <= 0) return;
-  ctx.save();
-  ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
-  ctx.fillStyle = color;
-  ctx.shadowColor = shadow.color;
-  ctx.shadowBlur = shadow.blur;
-  ctx.beginPath();
-  ctx.arc(x, y, radius, 0, PI2);
-  ctx.fill();
-  ctx.restore();
-}
-
-function _gradientCircle(ctx, x, y, radius, gradientStops, color, alpha, shadow) {
-  if (radius <= 0 || alpha <= 0) return;
-  ctx.save();
-  ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
-  const grad = ctx.createRadialGradient(x, y, 0, x, y, radius);
-  if (gradientStops && gradientStops.length > 0) {
-    for (const stop of gradientStops) {
-      grad.addColorStop(stop.offset, stop.color);
-    }
-  } else {
-    grad.addColorStop(0, color);
-    grad.addColorStop(1, 'rgba(0,0,0,0)');
-  }
-  ctx.fillStyle = grad;
-  ctx.shadowColor = shadow.color;
-  ctx.shadowBlur = shadow.blur;
-  ctx.beginPath();
-  ctx.arc(x, y, radius, 0, PI2);
-  ctx.fill();
-  ctx.restore();
-}
-
-function _strokeRing(ctx, x, y, radius, color, lineWidth, alpha, shadow) {
-  if (radius <= 0 || alpha <= 0 || lineWidth <= 0) return;
-  ctx.save();
-  ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
-  ctx.strokeStyle = color;
-  ctx.shadowColor = shadow.color;
-  ctx.shadowBlur = shadow.blur;
-  ctx.lineWidth = lineWidth;
-  ctx.beginPath();
-  ctx.arc(x, y, radius, 0, PI2);
-  ctx.stroke();
-  ctx.restore();
-}
-
-function _dashedRing(ctx, x, y, radius, color, lineWidth, dashPattern, alpha, shadow) {
-  if (radius <= 0 || alpha <= 0 || lineWidth <= 0) return;
-  ctx.save();
-  ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
-  ctx.strokeStyle = color;
-  ctx.shadowColor = shadow.color;
-  ctx.shadowBlur = shadow.blur;
-  ctx.lineWidth = lineWidth;
-  ctx.setLineDash(dashPattern || [4, 6]);
-  ctx.beginPath();
-  ctx.arc(x, y, radius, 0, PI2);
-  ctx.stroke();
-  ctx.setLineDash([]);
-  ctx.restore();
-}
-
-function _spikeLines(ctx, x, y, count, innerRadius, outerRadius, color, lineWidth, alpha, shadow) {
-  if (count <= 0 || alpha <= 0 || innerRadius <= 0) return;
-  ctx.save();
-  ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
-  ctx.strokeStyle = color;
-  ctx.shadowColor = shadow.color;
-  ctx.shadowBlur = shadow.blur;
-  ctx.lineWidth = lineWidth;
-  ctx.beginPath();
-  for (let i = 0; i < count; i++) {
-    const a = (i / count) * PI2;
-    const cos = Math.cos(a);
-    const sin = Math.sin(a);
-    ctx.moveTo(x + cos * innerRadius, y + sin * innerRadius);
-    ctx.lineTo(x + cos * outerRadius, y + sin * outerRadius);
-  }
-  ctx.stroke();
-  ctx.restore();
-}
-
-// ─── Primitive dispatch ──────────────────────────────────────────────────────
-
-const PRIMITIVE_RENDERERS = {
-  filledCircle(ctx, x, y, layer, pp, now, scale, opts) {
-    const color = resolveColor(layer.color, opts);
-    const radius = resolveValue(layer.radius, pp, now) * scale;
-    const alpha = resolveValue(layer.alpha ?? 1, pp, now);
-    const shadow = resolveShadow(layer.shadow, color, pp, now, opts);
-    _filledCircle(ctx, x, y, radius, color, alpha, shadow);
-  },
-
-  gradientCircle(ctx, x, y, layer, pp, now, scale, opts) {
-    const color = resolveColor(layer.color ?? '#ffffff', opts);
-    const radius = resolveValue(layer.radius, pp, now) * scale;
-    const alpha = resolveValue(layer.alpha ?? 1, pp, now);
-    const shadow = resolveShadow(layer.shadow, color, pp, now, opts);
-    _gradientCircle(ctx, x, y, radius, layer.gradient, color, alpha, shadow);
-  },
-
-  strokeRing(ctx, x, y, layer, pp, now, scale, opts) {
-    const color = resolveColor(layer.color, opts);
-    const radius = resolveValue(layer.radius, pp, now) * scale;
-    const lineWidth = resolveValue(layer.lineWidth ?? 1, pp, now);
-    const alpha = resolveValue(layer.alpha ?? 1, pp, now);
-    const shadow = resolveShadow(layer.shadow, color, pp, now, opts);
-    _strokeRing(ctx, x, y, radius, color, lineWidth, alpha, shadow);
-  },
-
-  dashedRing(ctx, x, y, layer, pp, now, scale, opts) {
-    const color = resolveColor(layer.color, opts);
-    const radius = resolveValue(layer.radius, pp, now) * scale;
-    const lineWidth = resolveValue(layer.lineWidth ?? 1, pp, now);
-    const alpha = resolveValue(layer.alpha ?? 1, pp, now);
-    const shadow = resolveShadow(layer.shadow, color, pp, now, opts);
-    _dashedRing(ctx, x, y, radius, color, lineWidth, layer.dashPattern, alpha, shadow);
-  },
-
-  spikeLines(ctx, x, y, layer, pp, now, scale, opts) {
-    const color = resolveColor(layer.color, opts);
-    const innerR = resolveValue(layer.innerRadius, pp, now) * scale;
-    const outerR = resolveValue(layer.outerRadius, pp, now) * scale;
-    const lineWidth = resolveValue(layer.lineWidth ?? 1, pp, now);
-    const alpha = resolveValue(layer.alpha ?? 1, pp, now);
-    const shadow = resolveShadow(layer.shadow, color, pp, now, opts);
-    _spikeLines(ctx, x, y, layer.count || 8, innerR, outerR, color, lineWidth, alpha, shadow);
-  },
-
-  // ─── Scatter primitives (ported from the art `particles` emitters) ──────────
-  // A cloud of N randomized instances. Randomized clouds have no equivalent among
-  // the deterministic primitives above; porting them here makes the VFX tab the
-  // single home for particle authoring (art references effects via `effectRef`).
-
-  scatterDots(ctx, x, y, layer, pp, now, scale, opts) {
-    const count = layer.count || 6;
-    const offsetX = (layer.offsetX || 0) * scale;
-    const spreadX = (layer.spreadX ?? 0.5) * scale;
-    const spreadY = (layer.spreadY ?? 0.5) * scale;
-    const sizeMin = (layer.sizeMin ?? 0.5) * scale;
-    const sizeRange = (layer.sizeRange ?? 1) * scale;
-    const alphaMin = layer.alphaMin ?? 0.3;
-    const alphaRange = layer.alphaRange ?? 0.5;
-    const colors = (layer.colors || ['#ffffff']).map(c => resolveColor(c, opts));
-    const threshold = layer.colorThreshold ?? 0.5;
-    ctx.save();
-    if (layer.shadowColor) { ctx.shadowColor = layer.shadowColor; ctx.shadowBlur = (layer.shadowBlur || 0) * scale; }
-    for (let i = 0; i < count; i++) {
-      const px = x + offsetX + (Math.random() * 2 - 1) * spreadX;
-      const py = y + (Math.random() * 2 - 1) * spreadY;
-      const sz = Math.max(0.1, sizeMin + Math.random() * sizeRange);
-      ctx.globalAlpha = Math.max(0, Math.min(1, alphaMin + Math.random() * alphaRange));
-      ctx.fillStyle = colors.length > 1 ? (Math.random() < threshold ? colors[0] : colors[1]) : colors[0];
-      ctx.beginPath(); ctx.arc(px, py, sz, 0, PI2); ctx.fill();
-    }
-    ctx.restore();
-  },
-
-  scatterLines(ctx, x, y, layer, pp, now, scale, opts) {
-    const count = layer.count || 6;
-    const color = resolveColor(layer.color ?? '#ffffff', opts);
-    const lineWidth = layer.lineWidth || 1;
-    const startOffset = (layer.startOffset || 0) * scale;
-    const spreadFactor = (layer.spreadFactor ?? 0.5) * scale;
-    const reachOffset = (layer.reachOffset || 0) * scale;
-    const reachFactor = (layer.reachFactor ?? 0.5) * scale;
-    const alphaMin = layer.alphaMin ?? 0.3;
-    const alphaRange = layer.alphaRange ?? 0.5;
-    ctx.save();
-    ctx.strokeStyle = color;
-    ctx.lineWidth = lineWidth;
-    for (let i = 0; i < count; i++) {
-      const sy2 = y + (Math.random() * 2 - 1) * spreadFactor;
-      const sx2 = x + startOffset;
-      const reach = reachOffset + Math.random() * reachFactor;
-      ctx.globalAlpha = Math.max(0, Math.min(1, alphaMin + Math.random() * alphaRange));
-      ctx.beginPath(); ctx.moveTo(sx2, sy2); ctx.lineTo(sx2 + reach, sy2); ctx.stroke();
-    }
-    ctx.restore();
-  },
-
-  scatterStrips(ctx, x, y, layer, pp, now, scale, opts) {
-    const count = layer.count || 8;
-    const stripLength = (layer.stripLength ?? 0.15) * scale;
-    const lineWidth = (layer.lineWidth ?? 0.05) * scale;
-    const spread = (layer.spread ?? 1) * scale;
-    const rotMin = layer.rotateSpeedMin ?? 0.002;
-    const rotMax = layer.rotateSpeedMax ?? 0.006;
-    const alphaMin = layer.alphaMin ?? 0.4;
-    const alphaRange = layer.alphaRange ?? 0.5;
-    const colors = (layer.colors || ['#ccddcc']).map(c => resolveColor(c, opts));
-    ctx.save();
-    ctx.lineWidth = Math.max(0.2, lineWidth);
-    ctx.lineCap = 'round';
-    if (layer.shadowColor) { ctx.shadowColor = layer.shadowColor; ctx.shadowBlur = (layer.shadowBlur || 0) * scale; }
-    for (let i = 0; i < count; i++) {
-      // Deterministic per-strip seed so positions are stable across frames.
-      const h = Math.sin(i * 127.1 + 311.7) * 43758.5453;
-      const rnd = (k) => { const v = Math.sin((i + 1) * 13.13 + k * 78.233) * 43758.5453; return v - Math.floor(v); };
-      const ang0 = (h - Math.floor(h)) * PI2;
-      const dist = rnd(1) * spread;
-      const rotSpeed = rotMin + rnd(2) * (rotMax - rotMin);
-      const rot = ang0 + now * rotSpeed;
-      const cxp = x + Math.cos(ang0) * dist;
-      const cyp = y + Math.sin(ang0) * dist;
-      const hx = Math.cos(rot) * stripLength * 0.5;
-      const hy = Math.sin(rot) * stripLength * 0.5;
-      ctx.globalAlpha = Math.max(0, Math.min(1, alphaMin + rnd(3) * alphaRange));
-      ctx.strokeStyle = colors[i % colors.length];
-      ctx.beginPath(); ctx.moveTo(cxp - hx, cyp - hy); ctx.lineTo(cxp + hx, cyp + hy); ctx.stroke();
-    }
-    ctx.restore();
-  },
-};
 
 // ─── Main entry point ────────────────────────────────────────────────────────
 
@@ -337,7 +40,7 @@ const PRIMITIVE_RENDERERS = {
  */
 export function drawPhasedEffect(ctx, sx, sy, effectDef, progress, scale, now, opts = {}) {
   if (!effectDef) {
-    _warnOnce('phased:noDef', '[VFX] drawPhasedEffect called with falsy effectDef');
+    warnOnce('phased:noDef', '[VFX] drawPhasedEffect called with falsy effectDef');
     return;
   }
   const phases = effectDef.phases;
@@ -379,7 +82,7 @@ export function drawPhasedEffect(ctx, sx, sy, effectDef, progress, scale, now, o
       if (renderer) {
         renderer(ctx, sx, sy, layer, layerProgress, now, scale, opts);
       } else {
-        _warnOnce('primitive:' + layer.primitive, `[VFX] unknown phased-layer primitive: ${layer.primitive}`);
+        warnOnce('primitive:' + layer.primitive, `[VFX] unknown phased-layer primitive: ${layer.primitive}`);
       }
     }
   }
@@ -618,7 +321,7 @@ export function drawTrailEffect(ctx, trailDef, screenPoints, now, opts = {}) {
     if (screenPoints.length < 2) return;
     _taperedTrail(ctx, trailDef, screenPoints, now, opts);
   } else {
-    _warnOnce('trailType:' + type, `[VFX] unknown trail effect type: ${type}`);
+    warnOnce('trailType:' + type, `[VFX] unknown trail effect type: ${type}`);
   }
 }
 
@@ -639,6 +342,6 @@ export function drawBeamEffect(ctx, beamDef, x1, y1, x2, y2, now, opts = {}) {
   if (beamDef.type === 'wiggleBeam') {
     _wiggleBeam(ctx, beamDef, x1, y1, x2, y2, now, opts);
   } else {
-    _warnOnce('beamType:' + beamDef.type, `[VFX] unknown beam effect type: ${beamDef.type}`);
+    warnOnce('beamType:' + beamDef.type, `[VFX] unknown beam effect type: ${beamDef.type}`);
   }
 }

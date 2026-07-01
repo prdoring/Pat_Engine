@@ -1,7 +1,7 @@
 // Pure, DOM-free keyframe-editing operations for the art editor's timeline.
 // Mirrors the data the runtime samples: clip metadata at `art.animations[clipKey]`
 // ({ duration, loop }) and per-shape tracks at `shape.anim[clipKey][propPath]`
-// (arrays of { t, v, ease? }). Unit-tested in Node like artCoordModel / midiModel.
+// (arrays of { t, v, ease? }). Unit-tested in Node like coordModel / midiModel.
 //
 // Game-agnostic, no DOM: every function takes plain art / shape objects and mutates
 // them in place (the editor snapshots the whole asset for undo, so that's fine).

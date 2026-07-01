@@ -8,23 +8,9 @@ import {
   NumberSlider, RandomizableSlider, ColorInput, Select, TextInput, Toggle, Button,
   PropertyGroup, createResizer,
   modalAlert, modalConfirm, modalPrompt,
-} from './editorShared.js';
-
-// The 8 Web Audio BiquadFilter types the engine supports (SoundManager._resolveFilter
-// passes `type` straight through). Shared by the voice filter and noise-layer filters.
-const FILTER_TYPES = [
-  { value: 'lowpass', label: 'Low-pass' },
-  { value: 'highpass', label: 'High-pass' },
-  { value: 'bandpass', label: 'Band-pass' },
-  { value: 'lowshelf', label: 'Low-shelf' },
-  { value: 'highshelf', label: 'High-shelf' },
-  { value: 'peaking', label: 'Peaking' },
-  { value: 'notch', label: 'Notch' },
-  { value: 'allpass', label: 'All-pass' },
-];
-
-// Resolve a possibly-[min,max] synth value to a single number for the static preview.
-const rv = (v) => (Array.isArray(v) ? v[0] : v);
+} from '/editors/shared/index.js';
+import { FILTER_TYPES } from './constants.js';
+import { oscillatorSample, rv } from './waveform.js';
 
 // ─── State ─────────────────────────────────────────────────────────────────
 
@@ -319,17 +305,6 @@ function buildPreviewControls() {
 }
 
 // ─── Computed Synth Waveform ─────────────────────────────────────────────────
-
-function oscillatorSample(type, phase) {
-  // phase is 0..1 within one cycle
-  switch (type) {
-    case 'sine':     return Math.sin(phase * 2 * Math.PI);
-    case 'square':   return phase < 0.5 ? 1 : -1;
-    case 'sawtooth': return 2 * (phase - Math.floor(phase + 0.5));
-    case 'triangle': return 4 * Math.abs(phase - 0.5) - 1;
-    default:         return Math.sin(phase * 2 * Math.PI);
-  }
-}
 
 function renderSynthWaveform() {
   if (!synthCanvas || !synthCtx) return;
