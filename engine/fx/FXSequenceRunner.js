@@ -82,6 +82,20 @@ export class FXSequenceRunner {
     this.play(seqRefToId(snakeRef), opts);
   }
 
+  /**
+   * Execute a single sequence step immediately, ignoring its `delay`. Positional
+   * when `opts.x`/`opts.y` are supplied. Lets a host (e.g. an editor's per-step
+   * preview) fire one step through the same interpretation as a full `play()` —
+   * repeat/offset+angle/volume/loop-by-handle/signal semantics all identical.
+   * @param {object} step - a sequence step ({ type, ... })
+   * @param {object} [opts] - same shape as play()'s opts (x, y, angle, volume, entity, …)
+   */
+  playStep(step, opts = {}) {
+    if (!step) return;
+    const positional = opts.x !== undefined && opts.y !== undefined;
+    this._executeStep(step, positional, opts);
+  }
+
   /** Stop all active timers and loops. */
   stopAll() {
     for (const timerId of this.activeTimers) {

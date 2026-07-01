@@ -6,22 +6,15 @@
 
 import { ctx, getShapeAtPath, CONTAINER_TYPES, editValueAt, commitShapeEdit } from '../ctx.js';
 import { addCoordDelta, addPointDelta } from '../model/coordModel.js';
+import { resolveCoord, resolveSetupVal } from '/engine/render/art/coords.js';
 
 // ─── Coordinate resolution (static, editor-space) ─────────────────────────────
+// Delegate to the ENGINE resolver so the editor's bounds / hit-targets / handles
+// agree with what the renderer actually draws — including the `base` (absolute px)
+// term that a hand-rolled copy here used to drop. Parity by construction.
 
 export function resolveCoordSimple(val, dc) {
-  if (typeof val === 'number') return val * dc.r;
-  if (typeof val === 'string') return 0;
-  if (typeof val === 'object' && val !== null) {
-    let result = 0;
-    for (const [k, v] of Object.entries(val)) {
-      if (k === 'r') result += v * dc.r;
-      else if (k === 'w') result += v * dc.w;
-      else if (k === 'h') result += v * dc.h;
-    }
-    return result;
-  }
-  return 0;
+  return resolveCoord(val, dc);
 }
 
 function resolvePointSimple(pt, dc) {
@@ -51,7 +44,11 @@ export function getShapeBounds(rawShape, dc) {
     case 'circle': {
       const cx = resolveCoordSimple(shape.cx, dc);
       const cy = resolveCoordSimple(shape.cy, dc);
-      const rad = shape.radiusAbs !== undefined ? shape.radiusAbs : (shape.radius || 0.1) * dc.r;
+      // radiusAbs may be a plain number OR a { base: N } coord-object — resolveSetupVal
+      // handles both (a raw object here previously produced NaN bounds).
+      const rad = shape.radiusAbs !== undefined
+        ? resolveSetupVal(shape.radiusAbs, dc)
+        : (shape.radius || 0.1) * dc.r;
       return { x: cx - rad, y: cy - rad, w: rad * 2, h: rad * 2 };
     }
     case 'path': {
@@ -283,7 +280,7 @@ export function getRadiusHandle(shape, dc) {
   const cx = resolveCoordSimple(shape.cx, dc);
   const cy = resolveCoordSimple(shape.cy, dc);
   const rad = shape.radiusAbs !== undefined
-    ? (typeof shape.radiusAbs === 'object' ? (shape.radiusAbs.base || 0) : shape.radiusAbs)
+    ? resolveSetupVal(shape.radiusAbs, dc)
     : (shape.radius || 0.1) * dc.r;
   return { x: cx + rad, y: cy, cx, cy };
 }

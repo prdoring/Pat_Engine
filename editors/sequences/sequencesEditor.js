@@ -4,6 +4,7 @@ import { FX_SEQUENCES } from '/engine/data/fxSequences.js';
 import { SOUND_CONFIG } from '/engine/data/sounds.js';
 import { VFX_DEFS } from '/engine/data/vfx.js';
 import { SoundManager } from '/engine/audio/SoundManager.js';
+import { FXSequenceRunner } from '/engine/fx/FXSequenceRunner.js';
 import { EffectsRenderer } from '/engine/render/EffectsRenderer.js';
 import { drawUnifiedArt } from '/engine/render/ArtInterpreter.js';
 import { loadManifest } from '/editors/shared/index.js';
@@ -22,6 +23,7 @@ import {
 
 let container = null;
 let soundManager = null;
+let runner = null;        // real engine FXSequenceRunner — the SAME interpreter the game uses
 let saveManager = null;
 let workingData = null;   // deep copy of fx-sequences.json sequences
 let selectedSeqId = null;
@@ -35,8 +37,7 @@ let playheadTime = 0;
 let isPlaying = false;
 let playStartReal = 0;
 let playStartOffset = 0;
-let playTimers = [];
-let activeLoopHandles = [];
+let autoStopTimer = null;
 let animFrame = null;
 
 // Drag state
@@ -81,6 +82,13 @@ export function mount(el) {
   soundManager = new SoundManager();
   soundManager.init();
 
+  // Drive the preview through the REAL engine sequence interpreter, so what the
+  // editor plays is byte-for-byte what the game plays (repeat/positional/offset+
+  // angle/volume/loop-by-handle/signal semantics all come from FXSequenceRunner,
+  // never re-implemented here). VFX are routed into the same EffectsRenderer the
+  // game uses via a thin effects-sink; signals drive the art-preview state.
+  runner = new FXSequenceRunner(soundManager, makePreviewEffectsSink(), onPreviewSignal);
+
   saveManager = new SaveManager('fx-sequences.json');
   saveManager.onDirtyChange(dirty => {
     window.editorSetUnsaved?.('sequences', dirty);
@@ -95,6 +103,7 @@ export function unmount() {
   stopPlayback();
   stopAnimLoop();
   soundManager = null;
+  runner = null;
   effectsRenderer = null;
   previewCanvas = null;
   previewCamera = null;
@@ -786,26 +795,44 @@ function renderVfxPreview(now) {
   }
 }
 
-function spawnVfxEffect(effectId, ox = 0, oy = 0) {
-  const def = VFX_DEFS[effectId];
-  if (!def) return;
-
-  const now = performance.now();
-  vfxLastUpdate = now;
-
-  const entry = {
-    x: ox, y: oy, vfxDef: def, startTime: now,
-    duration: def.duration, progress: 0,
-    scale: def.defaultScale || 120,
+// Minimal EffectsManager-shaped sink handed to FXSequenceRunner. The runner has
+// already resolved the world position (offset + entity-angle rotation) and scale,
+// so we just stage the effect for the preview render loop — which draws it through
+// the game's EffectsRenderer. This keeps VFX positioning/lifecycle identical to the
+// game while letting the runner own all the step interpretation.
+function makePreviewEffectsSink() {
+  return {
+    addGenericEffect(vfxDef, x, y, opts = {}) {
+      if (!vfxDef) return;
+      const now = performance.now();
+      vfxLastUpdate = now;
+      vfxEffects.push({
+        x, y, vfxDef, startTime: now,
+        duration: vfxDef.duration, progress: 0,
+        scale: opts.scale || vfxDef.defaultScale || 120,
+      });
+      if (vfxDef.debris) {
+        for (const d of vfxDef.debris) {
+          spawnVfxDebrisBurst(now, d.count, d.speed, d.lifetime, d.size, d.color, x, y);
+        }
+      }
+    },
   };
+}
 
-  vfxEffects.push(entry);
-
-  // Spawn debris at offset position
-  if (def.debris) {
-    for (const d of def.debris) {
-      spawnVfxDebrisBurst(now, d.count, d.speed, d.lifetime, d.size, d.color, ox, oy);
-    }
+// Signal handler for preview playback. Mirrors the game's onSignal (game/main.js)
+// for the presentational signals the preview can honor: state changes drive the
+// art preview; restartClip re-stamps the transition clock. removeEntity is a no-op
+// (there is no removable entity in the single-asset preview).
+function onPreviewSignal(name, data) {
+  if (name === 'setState') {
+    artPreviewState = data?.state ?? null;
+    artPreviewDurationOverride = data?.transitionDuration;
+  } else if (name === 'clearState') {
+    artPreviewState = null;
+    artPreviewDurationOverride = undefined;
+  } else if (name === 'restartClip') {
+    artPreviewTransition = { ...artPreviewTransition, startTime: performance.now() };
   }
 }
 
@@ -941,121 +968,41 @@ function hitTestStep(x, y) {
 // ─── Playback ────────────────────────────────────────────────────────────────
 
 function startPlayback() {
-  if (!selectedSeqId || !workingData[selectedSeqId]) return;
+  if (!selectedSeqId || !workingData[selectedSeqId] || !runner) return;
 
   stopPlayback();
+
+  // Play from the top through the real engine runner. (The runner schedules every
+  // step from t=0, so playback always starts at the beginning — the playhead is
+  // reset to match.) The preview places the target at world origin, which the
+  // preview camera centers; `entity` rides to signal steps just like in-game.
   isPlaying = true;
+  playheadTime = 0;
   playStartReal = performance.now();
-  playStartOffset = playheadTime;
+  playStartOffset = 0;
 
   // Clear VFX preview state
   vfxEffects = [];
   vfxDebris = [];
 
-  const steps = workingData[selectedSeqId].steps;
-  for (const step of steps) {
-    const delay = (step.delay || 0) - playStartOffset;
-    if (delay < 0) continue; // skip steps before playhead
+  soundManager.resume();
+  runner.play(selectedSeqId, { x: 0, y: 0, entity: { id: 'seqPreview' } });
 
-    const timer = setTimeout(() => executeStep(step), delay);
-    playTimers.push(timer);
-  }
-
-  // Auto-stop after sequence completes
-  const maxDelay = getMaxDelay();
-  const stopDelay = maxDelay - playStartOffset + 500;
-  if (stopDelay > 0) {
-    playTimers.push(setTimeout(() => {
-      stopPlayback();
-      buildControls();
-    }, stopDelay));
-  }
+  // Auto-stop after the sequence completes.
+  const stopDelay = getMaxDelay() + 500;
+  autoStopTimer = setTimeout(() => {
+    stopPlayback();
+    buildControls();
+  }, stopDelay);
 }
 
 function stopPlayback() {
   isPlaying = false;
-  for (const t of playTimers) clearTimeout(t);
-  playTimers = [];
-
-  // Stop all tracked loop handles
-  for (const handle of activeLoopHandles) {
-    soundManager?.stopLoop?.(handle, { fadeOut: 0.1 });
-  }
-  activeLoopHandles = [];
+  if (autoStopTimer) { clearTimeout(autoStopTimer); autoStopTimer = null; }
+  runner?.stopAll();   // stops the runner's step/repeat timers + loops (by handle)
   artPreviewState = null;
   artPreviewTransition = {};
   artPreviewDurationOverride = undefined;
-}
-
-function executeStep(step) {
-  if (!soundManager) return;
-
-  switch (step.type) {
-    case 'sfx': {
-      soundManager.resume();
-      const opts = {};
-      if (step.volume !== undefined) opts.volume = step.volume;
-
-      const repeatCount = Array.isArray(step.repeat)
-        ? step.repeat[0] + Math.floor(Math.random() * (step.repeat[1] - step.repeat[0] + 1))
-        : (step.repeat || 1);
-
-      for (let i = 0; i < repeatCount; i++) {
-        const playDelay = i * (step.repeatDelay || 0);
-        if (playDelay === 0) {
-          soundManager.playUI(step.sound, opts);
-        } else {
-          const t = setTimeout(() => soundManager.playUI(step.sound, opts), playDelay);
-          playTimers.push(t);
-        }
-      }
-      break;
-    }
-    case 'vfx': {
-      let ox = 0, oy = 0;
-      if (step.offset) { ox += step.offset.x || 0; oy += step.offset.y || 0; }
-      if (step.offsetRange) {
-        const rx = step.offsetRange.x;
-        const ry = step.offsetRange.y;
-        if (rx) ox += rx[0] + Math.random() * (rx[1] - rx[0]);
-        if (ry) oy += ry[0] + Math.random() * (ry[1] - ry[0]);
-      }
-      spawnVfxEffect(step.effect, ox, oy);
-      break;
-    }
-    case 'loopStart': {
-      soundManager.resume();
-      const opts = {};
-      if (step.fadeIn !== undefined) opts.fadeIn = step.fadeIn;
-      if (step.volume !== undefined) opts.volume = step.volume;
-      const handle = soundManager.startUILoop?.(step.sound, opts);
-      if (handle != null) activeLoopHandles.push(handle);
-      break;
-    }
-    case 'loopStop': {
-      const opts = {};
-      if (step.fadeOut !== undefined) opts.fadeOut = step.fadeOut;
-      // Find and stop the matching loop handle
-      // SoundManager uses numeric handles, not string names, so we stop all tracked handles
-      // In a real game, handle names map to specific loops — for preview, stop all loops
-      // with the given fade to approximate the effect
-      for (const h of activeLoopHandles) {
-        soundManager.stopLoop?.(h, opts);
-      }
-      activeLoopHandles = [];
-      break;
-    }
-    case 'signal':
-      if (step.name === 'setState') {
-        artPreviewState = step.data?.state ?? null;
-        artPreviewDurationOverride = step.data?.transitionDuration;
-      }
-      if (step.name === 'clearState') {
-        artPreviewState = null;
-        artPreviewDurationOverride = undefined;
-      }
-      break;
-  }
 }
 
 // ─── Step CRUD ───────────────────────────────────────────────────────────────
@@ -1251,17 +1198,10 @@ function buildVfxProps(step, set) {
   const vfxSel = Select('Effect', vfxOpts, step.effect || '', v => set('effect', v));
   propsEl.appendChild(vfxSel.el);
 
-  // Preview button
+  // Preview button — fire this one step through the real runner (offset + angle
+  // handled by the engine, identical to in-game placement).
   const previewBtn = Button('Preview VFX', () => {
-    let ox = 0, oy = 0;
-    if (step.offset) { ox += step.offset.x || 0; oy += step.offset.y || 0; }
-    if (step.offsetRange) {
-      const rx = step.offsetRange.x;
-      const ry = step.offsetRange.y;
-      if (rx) ox += rx[0] + Math.random() * (rx[1] - rx[0]);
-      if (ry) oy += ry[0] + Math.random() * (ry[1] - ry[0]);
-    }
-    spawnVfxEffect(step.effect, ox, oy);
+    runner?.playStep(step, { x: 0, y: 0 });
   }, 'subtle');
   propsEl.appendChild(previewBtn.el);
 
