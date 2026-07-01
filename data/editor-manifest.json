@@ -6,7 +6,7 @@
   "previewEntities": [
     { "id": "blob", "label": "Blob", "artCollection": "critters", "artId": "blob", "radius": 28, "color": "#7cc6a0", "states": ["idle", "happy", "scared"] },
     { "id": "sprout", "label": "Sprout", "artCollection": "critters", "artId": "sprout", "radius": 24, "color": "#cad27a", "states": ["idle", "happy", "scared"] },
-    { "id": "beetle", "label": "Beetle", "artCollection": "critters", "artId": "beetle", "radius": 26, "color": "#6a9f5a", "states": ["idle", "happy", "scared"] }
+    { "id": "beetle", "label": "Beetle", "artCollection": "critters", "artId": "beetle", "radius": 26, "color": "#6a9f5a", "states": ["idle", "happy", "scared", "linked"] }
   ],
   "vfxCategories": [
     { "id": "oneshot", "label": "One-shot", "match": ["poof", "burst", "jolt"] },

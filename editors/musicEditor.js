@@ -208,7 +208,7 @@ function toggleTransport() {
 }
 
 function updateTransportBtn() {
-  for (const b of playBtns) { b.textContent = playing ? '❚❚' : '▶'; b.className = 'me-tcell me-tplay' + (playing ? ' playing' : ''); }
+  for (const b of playBtns) { b.replaceChildren(svgIcon(playing ? 'pause' : 'play')); b.className = 'me-tcell me-tplay' + (playing ? ' playing' : ''); }
 }
 
 function setScene(tier) {
@@ -647,13 +647,13 @@ function buildUI() {
   bar.appendChild(newBtn);
 
   if (currentSongId) {
-    const dupBtn = el('button', 'me-mini', '⧉ clone');
+    const dupBtn = el('button', 'me-mini', 'Clone');
     dupBtn.title = 'Duplicate this song';
     dupBtn.addEventListener('click', dupSongPrompt);
-    const renBtn = el('button', 'me-mini', '✎ rename');
+    const renBtn = el('button', 'me-mini', 'Rename');
     renBtn.title = 'Rename this song';
     renBtn.addEventListener('click', renameSongPrompt);
-    const delSongBtn = el('button', 'me-mini danger', '🗑');
+    const delSongBtn = el('button', 'me-mini danger', 'Delete');
     delSongBtn.title = 'Delete this song';
     delSongBtn.addEventListener('click', deleteSongPrompt);
     bar.appendChild(dupBtn); bar.appendChild(renBtn); bar.appendChild(delSongBtn);
@@ -709,7 +709,7 @@ function buildUI() {
   // ── Piano roll for the selected stem ──
   root.appendChild(buildPianoRollPanel());
 
-  root.appendChild(el('div', 'me-hint', 'Click a stem to edit. Draw / drag to move·resize, right-click or Delete to remove, Alt-drag (or the velocity lane) for velocity, click the keys to preview. Ctrl+wheel zooms, drag the minimap to scroll, drag the ruler to move the playhead. ⧉ clones a stem; Import… pastes/uploads ABC or MIDI (or drop a .mid/.abc file anywhere); ⟳ on a strip repeats a short stem to fill the song. Space = play/pause, ← = to start, Ctrl+Z / Ctrl+Y = undo / redo.'));
+  root.appendChild(el('div', 'me-hint', 'Click a stem to edit. Draw / drag to move·resize, right-click or Delete to remove, Alt-drag (or the velocity lane) for velocity, click the keys to preview. Ctrl+wheel zooms, drag the minimap to scroll, drag the ruler to move the playhead. Clone duplicates a stem; Import… pastes or uploads ABC or MIDI (or drop a .mid/.abc file anywhere); the R toggle on a strip repeats a short stem to fill the song. Space = play/pause, ← = to start, Ctrl+Z / Ctrl+Y = undo / redo.'));
 
   container.appendChild(root);
 }
@@ -760,7 +760,7 @@ function buildSettingsRow() {
 function buildVibeEditRow() {
   const row = el('div', 'me-vibe-edit');
 
-  const renameBtn = el('button', 'me-mini', '✎ rename');
+  const renameBtn = el('button', 'me-mini', 'Rename');
   renameBtn.addEventListener('click', async () => {
     const next = await modalPrompt('', { title: 'Rename vibe', value: activeTier, confirmLabel: 'Rename',
       validate: v => !v ? 'Enter a name' : (v !== activeTier && song().intensity[v]) ? 'That vibe already exists' : '' });
@@ -769,7 +769,7 @@ function buildVibeEditRow() {
   });
   row.appendChild(renameBtn);
 
-  const cloneBtn = el('button', 'me-mini', '⧉ clone');
+  const cloneBtn = el('button', 'me-mini', 'Clone');
   cloneBtn.title = 'Duplicate this vibe’s level map under a new name';
   cloneBtn.addEventListener('click', async () => {
     const name = await modalPrompt('', { title: 'Clone vibe', value: `${activeTier} copy`, confirmLabel: 'Clone',
@@ -779,7 +779,7 @@ function buildVibeEditRow() {
   });
   row.appendChild(cloneBtn);
 
-  const delBtn = el('button', 'me-mini danger', '🗑 delete');
+  const delBtn = el('button', 'me-mini danger', 'Delete');
   delBtn.addEventListener('click', async () => {
     if (!await modalConfirm(`Delete vibe "${activeTier}"?`, { title: 'Delete vibe', confirmLabel: 'Delete', danger: true })) return;
     deleteVibe(song(), activeTier);
@@ -830,7 +830,7 @@ function channelStrip(stem) {
     soloStem = soloStem === stem.name ? null : stem.name;
     applyMix(); buildUI();
   }, 'Solo'));
-  btns.appendChild(msBtn('⟳', !!stem.repeat, '#6a9f5a', () => {
+  btns.appendChild(msBtn('R', !!stem.repeat, '#6a9f5a', () => {
     if (stem.repeat) delete stem.repeat; else stem.repeat = true;
     saveManager.markDirty();
     if (playing) music.updateStemNotes(stem.name, stem.notes, song());
@@ -870,7 +870,7 @@ function buildPianoRollPanel() {
 
   head.appendChild(el('span', 'me-pr-title', stem.name));
 
-  const rename = el('button', 'me-mini', '✎');
+  const rename = el('button', 'me-mini', 'Rename');
   rename.title = 'Rename stem';
   rename.addEventListener('click', async () => {
     const next = await modalPrompt('', { title: 'Rename stem', value: stem.name, confirmLabel: 'Rename',
@@ -880,7 +880,7 @@ function buildPianoRollPanel() {
   });
   head.appendChild(rename);
 
-  const clone = el('button', 'me-mini', '⧉');
+  const clone = el('button', 'me-mini', 'Clone');
   clone.title = 'Clone this stem (notes + mix levels), then change its instrument';
   clone.addEventListener('click', () => { const c = cloneStem(song(), stem.name); if (c) { selectedStem = c; structuralEdit(); } });
   head.appendChild(clone);
@@ -911,11 +911,11 @@ function buildPianoRollPanel() {
   });
   head.appendChild(clr);
 
-  const up = el('button', 'me-mini', '↑'); up.disabled = idx <= 0;
+  const up = el('button', 'me-mini', 'Up'); up.title = 'Move stem up'; up.disabled = idx <= 0;
   up.addEventListener('click', () => { if (reorderStem(song(), idx, -1)) structuralEdit({ resync: false }); });
-  const down = el('button', 'me-mini', '↓'); down.disabled = idx >= song().stems.length - 1;
+  const down = el('button', 'me-mini', 'Down'); down.title = 'Move stem down'; down.disabled = idx >= song().stems.length - 1;
   down.addEventListener('click', () => { if (reorderStem(song(), idx, +1)) structuralEdit({ resync: false }); });
-  const rm = el('button', 'me-mini danger', '✕ remove');
+  const rm = el('button', 'me-mini danger', 'Remove');
   rm.addEventListener('click', async () => {
     if (!await modalConfirm(`Remove stem "${stem.name}"?`, { title: 'Remove stem', confirmLabel: 'Remove', danger: true })) return;
     removeStem(song(), stem.name); selectedStem = null; structuralEdit();
@@ -945,6 +945,28 @@ function getPhase() {
   return playheadPhase;
 }
 
+// Inline monochrome SVG icons (inherit the button's color via currentColor) — a game engine's
+// transport deserves crisp vector glyphs, not emoji. Triangles in a 16-box; undo/redo are 24-box.
+const SVGNS = 'http://www.w3.org/2000/svg';
+const ICONS = {
+  toStart: { vb: '0 0 16 16', d: ['M4 3.5H5.6V12.5H4Z', 'M12.5 3.5 6.2 8 12.5 12.5Z'] },
+  back:    { vb: '0 0 16 16', d: ['M8.2 4 4 8 8.2 12Z', 'M12.6 4 8.4 8 12.6 12Z'] },
+  forward: { vb: '0 0 16 16', d: ['M3.4 4 7.6 8 3.4 12Z', 'M7.6 4 11.8 8 7.6 12Z'] },
+  play:    { vb: '0 0 16 16', d: ['M5 3.5 12.5 8 5 12.5Z'] },
+  pause:   { vb: '0 0 16 16', d: ['M5 3.5H7.2V12.5H5Z', 'M8.8 3.5H11V12.5H8.8Z'] },
+  stop:    { vb: '0 0 16 16', d: ['M4.5 4.5H11.5V11.5H4.5Z'] },
+  undo:    { vb: '0 0 24 24', d: ['M12.5 8c-2.65 0-5.05.99-6.9 2.6L2 7v9h9l-3.62-3.62c1.39-1.16 3.16-1.88 5.12-1.88 3.54 0 6.55 2.31 7.6 5.5l2.37-.78C21.08 11.03 17.15 8 12.5 8z'] },
+  redo:    { vb: '0 0 24 24', d: ['M18.4 10.6C16.55 8.99 14.15 8 11.5 8c-4.65 0-8.58 3.03-9.96 7.22L3.9 16c1.05-3.19 4.05-5.5 7.6-5.5 1.95 0 3.73.72 5.12 1.88L13 16h9V7l-3.6 3.6z'] },
+};
+function svgIcon(name) {
+  const ic = ICONS[name];
+  const svg = document.createElementNS(SVGNS, 'svg');
+  svg.setAttribute('viewBox', ic.vb); svg.setAttribute('width', '15'); svg.setAttribute('height', '15');
+  svg.setAttribute('aria-hidden', 'true'); svg.style.display = 'block';
+  for (const d of ic.d) { const p = document.createElementNS(SVGNS, 'path'); p.setAttribute('d', d); p.setAttribute('fill', 'currentColor'); svg.appendChild(p); }
+  return svg;
+}
+
 /** A tool row under the piano-roll head: transpose · quantize · copy-as-ABC for the stem. */
 function buildStemTools(stem) {
   const row = el('div', 'me-pr-tools');
@@ -963,26 +985,26 @@ function buildStemTools(stem) {
 
 function buildTransport() {
   const bar = el('div', 'me-transport');
-  const cell = (label, title, onClick, extraCls = '') => {
-    const b = el('button', 'me-tcell' + (extraCls ? ' ' + extraCls : ''), label);
-    b.title = title; b.addEventListener('click', onClick); return b;
+  const cell = (iconName, title, onClick) => {
+    const b = el('button', 'me-tcell'); b.title = title; b.appendChild(svgIcon(iconName));
+    b.addEventListener('click', onClick); return b;
   };
 
   // Undo / redo cluster (separate small group on the left)
   const hist = el('div', 'me-tgroup');
-  undoBtnEl = cell('⤺', 'Undo (Ctrl+Z)', undo); undoBtnEl.disabled = undoStack.length <= 1;
-  redoBtnEl = cell('⤻', 'Redo (Ctrl+Y)', redo); redoBtnEl.disabled = redoStack.length === 0;
+  undoBtnEl = cell('undo', 'Undo (Ctrl+Z)', undo); undoBtnEl.disabled = undoStack.length <= 1;
+  redoBtnEl = cell('redo', 'Redo (Ctrl+Y)', redo); redoBtnEl.disabled = redoStack.length === 0;
   hist.appendChild(undoBtnEl); hist.appendChild(redoBtnEl);
   bar.appendChild(hist);
 
   // Transport cluster
   const tg = el('div', 'me-tgroup');
-  tg.appendChild(cell('⏮', 'Playhead to start (←)', () => setPlayhead(0)));
-  tg.appendChild(cell('⏪', 'Back one bar', () => stepPlayhead(-1)));
+  tg.appendChild(cell('toStart', 'Playhead to start (←)', () => setPlayhead(0)));
+  tg.appendChild(cell('back', 'Back one bar', () => stepPlayhead(-1)));
   const playBtn = el('button', 'me-tcell me-tplay'); playBtn.title = 'Play / Pause (Space)';
   playBtn.addEventListener('click', toggleTransport); playBtns.push(playBtn); tg.appendChild(playBtn);
-  tg.appendChild(cell('⏹', 'Stop', stop));
-  tg.appendChild(cell('⏩', 'Forward one bar', () => stepPlayhead(1)));
+  tg.appendChild(cell('stop', 'Stop', stop));
+  tg.appendChild(cell('forward', 'Forward one bar', () => stepPlayhead(1)));
   bar.appendChild(tg);
 
   updateTransportBtn();

@@ -332,6 +332,14 @@ drawUnifiedArt(ctx, r, color, art.critters.blob, state, now /*, transition?, dur
   clip via `transition.animTime[clipKey]`; `restartClip` re-stamps the play-once epoch. Unknown shape
   types warn once (dev) and skip. (The legacy oscillator/spinner `animators` system was removed; the
   one lost capability is per-copy `phase` staggering inside `repeat`/`forEach`/`radialRepeat`.)
+  This data is authored via the part-centric, auto-key timeline (see §Editor suite). The **beetle**
+  (`data/critter-art.json`, states idle/happy/scared/linked) is the reference showcase that exercises
+  every keyframeable channel — position (incl. coord-object `r` terms), both radius modes, rotation,
+  `setup.alpha/shadowBlur/lineWidth/fill|strokeColor`, rect `width/height/x/y` (a ground-shadow
+  `roundedRect`), all 10 eases, an ambient loop + play-once state clips + a looping `linked` clip, and
+  two `visibleStates`-gated one-shot effectRefs (`poof` on happy, `jolt` on scared). Its happy sparkle
+  aura is drawn by the **game** (`GardenRenderer.drawAuras`), not embedded — see the effectRef scale
+  caveat below.
 - **`effectRef`** embeds a VFX effect by id: `{ type:"effectRef", effect, cx, cy, scale?,
   progress? }` — the third VFX category (asset-embedded, vs sequence- or code-triggered).
   Playback is **decoupled from the keyframe timeline by default**: with no `progress`, a
@@ -339,10 +347,14 @@ drawUnifiedArt(ctx, r, color, art.critters.blob, state, now /*, transition?, dur
   frozen. A keyframed **`progress` (0..1) track** is the explicit opt-in that drives the effect's
   lifecycle from the clip timeline — ramp 0→1 to *fire* a burst in sync with the animation (the
   editor's effectRef "▶ Fire over <clip>" button writes it; gate with `visibleStates`). `cx/cy/
-  scale` are keyframeable to move/grow it in either mode. The interpreter stays data-agnostic: the
-  host injects the lookup via `setEffectResolver(id => VFX_DEFS[id])` — wired in `game/main.js`,
-  `game/shots.js`, and the art-editor preview. The legacy art `particles` shape still renders but
-  is deprecated (author particle clouds in the VFX tab and embed via `effectRef`).
+  scale` are keyframeable to move/grow it in either mode. **Scale contract (gotcha):** the embedded
+  effect draws at `scale = shape.scale * dc.r`, which assumes the effect's layer radii are NORMALIZED
+  fractions (~0–1, like `poof`'s `defaultScale:26` which divides them out). An absolute-pixel persistent
+  effect (e.g. `sparkleAura`: `defaultScale:1`, dashedRing `base:26`) blows up ~26× when embedded → a
+  giant strobing ring; draw those from game code with a `radius/base` scale instead. The interpreter
+  stays data-agnostic: the host injects the lookup via `setEffectResolver(id => VFX_DEFS[id])` — wired in
+  `game/main.js`, `game/shots.js`, and the art-editor preview. The legacy art `particles` shape still
+  renders but is deprecated (author particle clouds in the VFX tab and embed via `effectRef`).
 - Always draw under the camera transform (see Critter Garden's `GardenRenderer._drawArtAt`):
   `translate(screen); scale(zoom); drawUnifiedArt(ctx, r, ...)` so absolute radii, line
   widths, and glow scale with zoom too.
@@ -452,18 +464,25 @@ music.stop();                                      // in scene exit()
 
 Each stem pairs a `sound` (its instrument timbre — a `loop:true` synth sound, edited in the Sounds
 sub-tab) with a **note pattern**. The pattern is editable JSON authored against a song tempo grid
-(`song.bpm`/`bars`/`beatsPerBar`/`grid`): `stem.notes:[{beat,len,midi,vel}]`. The engine plays it via
-the inline-notes loop path — `startSong` hands each stem `{notes (beats→seconds), loopLen}` so every
-stem loops to the same bar grid in lock-step. A stem with **no** `notes` falls back to its sound's
-`synth.midi.{file,track}` (legacy `.mid`-driven path; gate that on `sound.loadMidi(path)`). Live note
-editing uses `music.updateStemNotes(name, beatsNotes, song)` (swaps the loop's notes with no restart —
-stays in sync), `music.swapStemSound(name, soundId, song)` (swap a stem's instrument in phase, no song
-restart), `music.seekTo(phase)` (move the playhead, no restart), and `music.getPhase()` (0..1, for an
-editor playhead). Assemble + edit songs in the
-**Music** sub-tab (under **Soundboard**): a mixing console (add/remove/reorder/rename stems, mix
-headroom/crossfade, per-vibe faders) **plus a piano-roll MIDI editor below the mixer** — click a stem,
-draw/move/resize/delete notes on a pitch×time grid, live as the song plays. `.mid` files are an optional
-import-to-seed. The example wires `GardenScene` (population → `calm`/`lively`/`playful`, a pairing punches `triumph`).
+(`song.bpm`/`bars`/`beatsPerBar`/`grid`): `stem.notes:[{beat,len,midi,vel}]`. The whole song shares ONE
+loop length (`bars × beatsPerBar`); a stem shorter than that either plays once then waits, or — with
+`stem.repeat:true` — tiles to fill the loop, repeating on a whole-bar period (`tileBeatsToLoop` in
+`engine/audio/midi.js`, applied in `MusicDirector._stemNotes`). The engine plays it via the inline-notes
+loop path — `startSong` hands each stem `{notes (beats→seconds), loopLen}` so every stem loops to the same
+bar grid in lock-step. A stem with **no** `notes` falls back to its sound's `synth.midi.{file,track}`
+(legacy `.mid`-driven path; gate that on `sound.loadMidi(path)`). Live note editing uses
+`music.updateStemNotes(name, beatsNotes, song)` (swaps the loop's notes with no restart — stays in sync),
+`music.swapStemSound(name, soundId, song)` (swap a stem's instrument in phase, no song restart),
+`music.seekTo(phase)` (move the playhead, no restart), and `music.getPhase()` (0..1, for an editor
+playhead). Assemble + edit songs in the
+**Music** sub-tab (under **Soundboard**): a mixing console (add/remove/reorder/rename/**clone** stems with
+mute/solo/**repeat** per strip; clone/rename/delete songs and vibe scenes; mix headroom/crossfade,
+per-vibe faders) **plus a piano-roll editor below the mixer** — click a stem, draw/move/resize/delete notes
+on a pitch×time grid live as the song plays, transpose/quantize, and **Import…** notes by pasting or
+uploading **ABC notation or MIDI** (or drag-drop a `.mid`/`.abc` file onto the editor); an import longer
+than the song auto-extends `bars`. The example `data/music.json` (`critterGarden`) shows it off: short
+phrases authored once with `repeat:true` (kick/shaker 1-bar, bass/pad/lead 4-bar) under a full 8-bar flute
+melody. The example wires `GardenScene` (population → `calm`/`lively`/`playful`, a pairing punches `triumph`).
 
 ### Camera — `engine/core/Camera.js`
 
@@ -560,12 +579,50 @@ The **Art editor** does full asset CRUD (sidebar **+ New** / hover rename·dupli
 gesture-scoped **undo/redo** (`Ctrl+Z`/`Shift+Z`/`Y`, per-asset, restore-in-place), **canvas
 click-to-select** + drag, **vertex/radius handles**, tree **hide/solo/lock**, arrow-key nudge,
 copy/paste shapes (`Ctrl+C/V`), an asset-level settings panel (select nothing), live "= N px"
-coord readouts, a **keyframe timeline** (forked from the MIDI editor's playhead/transport feel:
-`Space` play/pause, ruler scrub, `Ctrl`/`Shift`+wheel zoom/pan, diamonds you drag/add/delete,
-Loop-vs-Once clips, a per-property `◆` key button + a guided "looping motion" generator in the
-props panel), and `effectRef` for embedding VFX effects. All CRUD/naming uses themed modals
-(`modal*` in `editorShared.js`), not native `prompt`/`confirm`. The pure, DOM-free logic lives in
-`editors/art{AssetOps,CoordModel,History,Keyframes}.js` (unit-tested in Node like `musicModel.js`).
+coord readouts, a **part-centric keyframe timeline**, and `effectRef` for embedding VFX effects.
+All CRUD/naming uses themed modals (`modal*` in `editorShared.js`), not native `prompt`/`confirm`.
+The pure, DOM-free logic lives in `editors/art{AssetOps,CoordModel,History,Keyframes}.js`
+(unit-tested in Node like `musicModel.js`).
+
+The **keyframe timeline is a dope sheet with one row per *part* (shape), not per variable**: a diamond
+marks any time that part has ≥1 keyed property (a "pose"); drag it to retime the whole pose, right-click
+to delete it, double-click a row to key the pose there, and expand `▸` for the per-property channel
+sub-rows (fine control). Only animated parts (plus the selected one) get rows. Authoring is **auto-key**
+(default ON, togglable): with a part selected, scrub the playhead and tweak the part in the props panel —
+each change writes a keyframe at that time. The props widgets are **time-aware** (they show the *sampled*
+value at the playhead), so an edit means "make it look like this here." This is done by a transparent
+**anim proxy** (`createAnimProxy` in `artEditorCtx.js`) that composes *outside* the state-override proxy:
+a keyframed prop READS its sampled value and a SET writes a keyframe instead of the base. The rule keys off
+**track-existence** (an existing track always keys; auto-key only *creates* a new track, and only at t>0 so
+static authoring at t=0 still edits the base). A single **"Key part"** button plus a collapsed **"Advanced
+channels"** disclosure (per-property key/loop/clear + a guided "looping motion" generator) cover explicit
+and fine control. Transport is forked from the MIDI editor (`Space` play/pause, ruler scrub,
+`Ctrl`/`Shift`+wheel zoom/pan, Loop-vs-Once clips). Pure part/pose ops (`listPartRows`, `poseTimes`,
+`movePose`, `deletePose`, `keyPose`, coercion helpers) live in `editors/artKeyframes.js`. The props panel
+reflects the animation **live** — while scrubbing (`refreshPropsForScrub`) and while playing
+(`syncPlaybackProps` in the render loop, throttled/focus-guarded) — so values animate with the preview
+instead of freezing until pause. Point/vertex number fields are time-aware too (`livePointRow` shows the
+sampled value via `editValueAt` and writes via `commitShapeEdit`).
+
+**On-canvas drags edit the same way the panel does.** Move / vertex / radius / rotate drags (and arrow-key
+nudge) route through **`commitShapeEdit(rawShape, propPath, value)`** (artEditorCtx.js) — the single edit
+router that both the panel and the canvas use: KEYFRAME into the key-target clip at the playhead (seeding a
+t=0 rest key) when a track exists OR auto-key is on and playhead>0 (never while playing) → else STATE
+OVERRIDE (`states[state]`) → else BASE. `propPath` may be dotted (`points.2`, `segments.0.1`,
+`curves.1.cp`), so dragging one **vertex** keyframes just that vertex (the runtime applies dotted paths
+deeply). Drags read the on-screen value via `editValueAt` (sampled if keyed, else the effective rest) so a
+grab starts where the shape is. Don't reintroduce direct base mutation in the drag handlers — route through
+`commitShapeEdit` so state/keyframe context is always honored.
+
+**Preview render loop (architecture — don't regress):** the art-editor preview runs an **always-on
+render loop** (`startRenderLoop`/`stopRenderLoop`, artEditorPreview.js; started in `mount`, stopped in
+`unmount`) that calls `renderPreview()` **every frame while mounted**. Play/pause toggles ONLY
+`ctx.animPlaying` = whether animation *time* advances (`timeline.advance`); painting is unconditional. So
+the preview is always a live reflection of state — zoom, pan, undo/redo, edits, selection — with **no
+mutation site needing to trigger a repaint**. Do NOT gate rendering on `animPlaying` or sprinkle one-shot
+`renderPreview()` after mutations: that push-based, hand-maintained-trigger model is exactly what caused a
+long tail of "preview is stale until I move/play" bugs (each was a missing trigger). The loop is the
+single source of truth for what's on screen.
 
 ### Authoring shapes (current schemas)
 

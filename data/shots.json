@@ -72,14 +72,15 @@
     {
       "id": "beetle",
       "scene": "garden",
-      "viewport": { "w": 760, "h": 420 },
+      "viewport": { "w": 900, "h": 420 },
       "now": 900,
       "state": {
-        "camera": { "x": 1200, "y": 900, "zoom": 1.6 },
+        "camera": { "x": 1230, "y": 900, "zoom": 1.5 },
         "critters": [
-          { "x": 1080, "y": 900, "species": "beetle", "state": "idle", "animTime": { "*": 900 } },
-          { "x": 1200, "y": 900, "species": "beetle", "state": "happy", "animTime": { "*": 900, "happy": 180 } },
-          { "x": 1320, "y": 900, "species": "beetle", "state": "scared", "animTime": { "*": 900, "scared": 150 } }
+          { "x": 1040, "y": 900, "species": "beetle", "state": "idle", "animTime": { "*": 900 } },
+          { "x": 1160, "y": 900, "species": "beetle", "state": "happy", "animTime": { "*": 900, "happy": 180 } },
+          { "x": 1280, "y": 900, "species": "beetle", "state": "scared", "animTime": { "*": 900, "scared": 150 } },
+          { "x": 1400, "y": 900, "species": "beetle", "state": "linked", "animTime": { "*": 900, "linked": 700 } }
         ]
       }
     },

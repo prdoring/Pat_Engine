@@ -9,7 +9,7 @@ import { buildStateBar, discoverStates } from './artEditorStates.js';
 import { createHistory } from './artHistory.js';
 import { buildSidebarShapeTree, deleteSelectedShape, duplicateSelectedShape, moveSelectedShape, mirrorSelectedShape, copySelectedShape, pasteShape } from './artEditorTree.js';
 import { buildShapeProps } from './artEditorProps.js';
-import { startAnimation, stopAnimation, buildControls, setupPreviewInteraction, nudgeSelectedShape, renderPreview } from './artEditorPreview.js';
+import { startAnimation, stopAnimation, startRenderLoop, stopRenderLoop, buildControls, setupPreviewInteraction, nudgeSelectedShape } from './artEditorPreview.js';
 import { createArtTimeline } from './artEditorTimeline.js';
 import { deleteKeyframe } from './artKeyframes.js';
 
@@ -36,18 +36,17 @@ export async function mount(el) {
   ctx.rebuildSaveRow = rebuildSaveRow;
   ctx.startAnimation = startAnimation;
   ctx.stopAnimation = stopAnimation;
-  ctx.renderPreview = renderPreview;
   ctx.historyInit = historyInit;
   ctx.reloadCollections = reloadCollections;
   ctx.rebuildTimeline = () => ctx.timeline?.refresh();
 
   buildUI();
-  startAnimation();
+  startRenderLoop();   // always-on preview repaint (independent of play/pause)
   document.addEventListener('keydown', handleEditorKeydown);
 }
 
 export function unmount() {
-  stopAnimation();
+  stopRenderLoop();
   document.removeEventListener('keydown', handleEditorKeydown);
   ctx.container = null;
   ctx.preview = null;
@@ -380,10 +379,9 @@ function markDirty() {
   ctx.saveManagers[ctx.currentFileKey].markDirty();
   rebuildSaveRow();
   scheduleCommit();
-  // While the animation loop is paused, edits and on-canvas drags wouldn't repaint
-  // the preview (the rAF tick is the only thing that calls renderPreview). Draw one
-  // frame so changes show live even when paused.
-  if (ctx.preview && !ctx.animPlaying) renderPreview();
+  // No renderPreview() needed: the always-on render loop (startRenderLoop) repaints
+  // every frame, so edits/drags/undo show up on their own. Don't reintroduce manual
+  // paint triggers here — that's the stale-preview foot-gun this architecture removed.
 }
 
 function clearProps() {

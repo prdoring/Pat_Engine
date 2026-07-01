@@ -8,6 +8,8 @@ const {
   getTrack, hasAnim, setKeyframe, deleteKeyframe, deleteTrack, makeLoopable,
   walkShapes, listTracks, keyframeableProps, colorPropPath, getPropValue,
   renameAnimState, cloneAnimState, deleteAnimState,
+  poseTimes, listPartRows, movePose, deletePose, keyPose,
+  defaultFor, coerceToShapeOf, coerceToTrack,
 } = await import('/editors/artKeyframes.js');
 
 function fixture() {
@@ -176,4 +178,113 @@ test('removeClip drops meta and every shape track for that clip', () => {
   assert.equal(clipMeta(art, '*'), null);
   assert.equal(hasAnim(art.shapes[0]), false);
   assert.equal(hasAnim(art.shapes[1]), false);
+});
+
+// ── Part rows + pose ops ──────────────────────────────────────────────────────
+
+test('poseTimes: unions key times across a shape\'s tracks and clusters within tol', () => {
+  const art = fixture();
+  const s = art.shapes[0];
+  setKeyframe(s, '*', 'cy', 0, 0);
+  setKeyframe(s, '*', 'cy', 900, 1);
+  setKeyframe(s, '*', 'setup.alpha', 0, 0.5);   // same pose at t=0 → one diamond
+  setKeyframe(s, '*', 'setup.alpha', 1800, 0.2);
+  assert.deepEqual(poseTimes(s, '*'), [0, 900, 1800]);
+});
+
+test('listPartRows: one row per shape with tracks, carrying depth + pose times', () => {
+  const art = fixture();
+  setKeyframe(art.shapes[0], '*', 'cy', 0, 0);            // Glow (depth 0)
+  setKeyframe(art.shapes[0], '*', 'cy', 900, 1);
+  setKeyframe(art.shapes[2].shapes[0], '*', 'cy', 500, 0); // nested ray (depth 1)
+  const rows = listPartRows(art, '*');
+  assert.equal(rows.length, 2);
+  const glow = rows.find((r) => r.name === 'Glow');
+  assert.deepEqual(glow.path, [0]);
+  assert.equal(glow.depth, 0);
+  assert.deepEqual(glow.times, [0, 900]);
+  assert.equal(glow.propCount, 1);
+  const ray = rows.find((r) => r.name === 'ray');
+  assert.deepEqual(ray.path, [2, 0]);
+  assert.equal(ray.depth, 1);
+});
+
+test('movePose: retimes every track keyed near a pose time, merging at the target', () => {
+  const art = fixture();
+  const s = art.shapes[0];
+  setKeyframe(s, '*', 'cy', 200, 5);
+  setKeyframe(s, '*', 'setup.alpha', 200, 0.4);
+  setKeyframe(s, '*', 'cy', 1000, 9);          // a later key that must not move
+  const moved = movePose(s, '*', 200, 600);
+  assert.equal(moved, 2);
+  assert.deepEqual(getTrack(s, '*', 'cy').map((k) => k.t), [600, 1000]);
+  assert.deepEqual(getTrack(s, '*', 'setup.alpha').map((k) => k.t), [600]);
+  assert.equal(getTrack(s, '*', 'cy').find((k) => k.t === 600).v, 5);
+});
+
+test('movePose: no-op for tracks with no key near fromT', () => {
+  const art = fixture();
+  const s = art.shapes[0];
+  setKeyframe(s, '*', 'cy', 0, 0);
+  setKeyframe(s, '*', 'setup.alpha', 900, 1);  // only this track has a key near 900
+  const moved = movePose(s, '*', 900, 1200);
+  assert.equal(moved, 1);
+  assert.deepEqual(getTrack(s, '*', 'cy').map((k) => k.t), [0]); // untouched
+  assert.deepEqual(getTrack(s, '*', 'setup.alpha').map((k) => k.t), [1200]);
+});
+
+test('deletePose: removes the whole pose at a time and prunes empties', () => {
+  const art = fixture();
+  const s = art.shapes[0];
+  setKeyframe(s, '*', 'cy', 0, 0);
+  setKeyframe(s, '*', 'cy', 900, 1);
+  setKeyframe(s, '*', 'setup.alpha', 900, 0.5);
+  const n = deletePose(s, '*', 900);
+  assert.equal(n, 2);
+  assert.deepEqual(getTrack(s, '*', 'cy').map((k) => k.t), [0]);
+  assert.equal(getTrack(s, '*', 'setup.alpha'), null); // pruned (was its only key)
+});
+
+test('keyPose: keys all currently-tracked props at a time via valueAt', () => {
+  const art = fixture();
+  const s = art.shapes[0];
+  setKeyframe(s, '*', 'cy', 0, 0);
+  setKeyframe(s, '*', 'setup.alpha', 0, 1);
+  const n = keyPose(s, '*', 500, (prop) => (prop === 'cy' ? 3 : 0.4));
+  assert.equal(n, 2);
+  assert.equal(getTrack(s, '*', 'cy').find((k) => k.t === 500).v, 3);
+  assert.equal(getTrack(s, '*', 'setup.alpha').find((k) => k.t === 500).v, 0.4);
+});
+
+test('keyPose: bootstraps every keyframeable prop when the clip has none yet', () => {
+  const art = fixture();
+  const s = art.shapes[0]; // circle Glow
+  const n = keyPose(s, '*', 0, () => 1);
+  assert.ok(n >= 5); // cx, cy, radiusAbs, rotation, setup.* , color …
+  assert.ok(getTrack(s, '*', 'cx'));
+  assert.ok(getTrack(s, '*', 'rotation'));
+});
+
+// ── Value-shape coercion ──────────────────────────────────────────────────────
+
+test('defaultFor: neutral value per kind', () => {
+  assert.deepEqual(defaultFor('coord'), { base: 0 });
+  assert.equal(defaultFor('number'), 0);
+  assert.equal(defaultFor('color'), '#ffffff');
+});
+
+test('coerceToShapeOf: number↔coord-object conform; colors pass through', () => {
+  assert.deepEqual(coerceToShapeOf({ base: 10, r: 0.1 }, 7), { base: 7 });
+  assert.equal(coerceToShapeOf(5, { base: 9, r: 0.2 }), 9);
+  assert.equal(coerceToShapeOf('#abc', '#def'), '#def');
+  assert.equal(coerceToShapeOf(5, 8), 8);
+});
+
+test('coerceToTrack: conforms a number write to an existing coord-object track', () => {
+  const art = fixture();
+  const s = art.shapes[0];
+  setKeyframe(s, '*', 'radiusAbs', 0, { base: 16 });
+  const track = getTrack(s, '*', 'radiusAbs');
+  assert.deepEqual(coerceToTrack(track, 21), { base: 21 });
+  assert.equal(coerceToTrack([], 21), 21); // empty track → unchanged
 });

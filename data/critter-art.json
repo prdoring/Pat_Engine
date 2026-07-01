@@ -125,28 +125,45 @@
 
     "beetle": {
       "name": "Beetle",
-      "states": ["idle", "happy", "scared"],
+      "states": ["idle", "happy", "scared", "linked"],
       "setup": { "lineWidth": 2 },
       "transitionDuration": 140,
       "animations": {
         "*": { "duration": 1800, "loop": true },
         "happy": { "duration": 640, "loop": false },
-        "scared": { "duration": 760, "loop": false }
+        "scared": { "duration": 760, "loop": false },
+        "linked": { "duration": 1400, "loop": true }
       },
       "shapes": [
+        { "name": "Ground shadow", "type": "roundedRect", "fill": true,
+          "x": -0.45, "y": 0.72, "width": 0.9, "height": 0.16, "cornerRadius": 0.08,
+          "setup": { "fillColor": "#0a160c", "alpha": 0.28 },
+          "anim": {
+            "*": {
+              "width": [ { "t": 0, "v": 0.9 }, { "t": 900, "v": 0.72, "ease": "easeInOutSine" }, { "t": 1800, "v": 0.9, "ease": "easeInOutSine" } ],
+              "x": [ { "t": 0, "v": -0.45 }, { "t": 900, "v": -0.36, "ease": "easeInOutSine" }, { "t": 1800, "v": -0.45, "ease": "easeInOutSine" } ],
+              "height": [ { "t": 0, "v": 0.16 }, { "t": 900, "v": 0.12, "ease": "easeInOutSine" }, { "t": 1800, "v": 0.16, "ease": "easeInOutSine" } ],
+              "y": [ { "t": 0, "v": 0.72 }, { "t": 900, "v": 0.74, "ease": "easeInOutSine" }, { "t": 1800, "v": 0.72, "ease": "easeInOutSine" } ]
+            }
+          }
+        },
         { "name": "Glow", "type": "circle", "fill": true, "cx": 0, "cy": 0.06,
           "radiusAbs": { "base": 16 },
           "setup": { "fillColor": "#9fe0b0", "alpha": 0.12, "shadowBlur": 10 },
           "anim": {
             "*": {
               "radiusAbs": [ { "t": 0, "v": { "base": 16 } }, { "t": 900, "v": { "base": 21 }, "ease": "easeInOutSine" }, { "t": 1800, "v": { "base": 16 }, "ease": "easeInOutSine" } ],
-              "setup.alpha": [ { "t": 0, "v": 0.12 }, { "t": 900, "v": 0.2, "ease": "easeInOutSine" }, { "t": 1800, "v": 0.12, "ease": "easeInOutSine" } ]
+              "setup.alpha": [ { "t": 0, "v": 0.12 }, { "t": 900, "v": 0.2, "ease": "easeInOutSine" }, { "t": 1800, "v": 0.12, "ease": "easeInOutSine" } ],
+              "setup.shadowBlur": [ { "t": 0, "v": 10 }, { "t": 900, "v": 22, "ease": "easeInOutSine" }, { "t": 1800, "v": 10, "ease": "easeInOutSine" } ]
             },
             "happy": {
               "setup.alpha": [ { "t": 0, "v": 0.5 }, { "t": 120, "v": 0.85, "ease": "easeOutQuad" }, { "t": 640, "v": 0.3, "ease": "easeInOutSine" } ]
             },
             "scared": {
               "setup.alpha": [ { "t": 0, "v": 0.12 }, { "t": 220, "v": 0.05, "ease": "easeOutQuad" } ]
+            },
+            "linked": {
+              "setup.alpha": [ { "t": 0, "v": 0.16 }, { "t": 700, "v": 0.3, "ease": "easeInOutSine" }, { "t": 1400, "v": 0.16, "ease": "easeInOutSine" } ]
             }
           }
         },
@@ -162,48 +179,75 @@
             "scared": {
               "cy": [ { "t": 0, "v": 0 }, { "t": 140, "v": 0.14, "ease": "easeOutQuad" }, { "t": 760, "v": 0.08, "ease": "easeInOutSine" } ],
               "rotation": [ { "t": 0, "v": 0 }, { "t": 90, "v": -0.12, "ease": "easeOutQuad" }, { "t": 210, "v": 0.12 }, { "t": 330, "v": -0.07 }, { "t": 470, "v": 0.03 }, { "t": 760, "v": 0, "ease": "easeInOutSine" } ]
+            },
+            "linked": {
+              "rotation": [ { "t": 0, "v": -0.08 }, { "t": 700, "v": 0.08, "ease": "easeInOutSine" }, { "t": 1400, "v": -0.08, "ease": "easeInOutSine" } ]
             }
           },
           "children": [
             { "name": "Shell", "type": "circle", "fill": true, "stroke": true, "cx": 0, "cy": 0.12, "radius": 0.62,
               "setup": { "fillColor": "#6a9f5a", "strokeColor": "#3a5f3a", "shadowBlur": 4 },
               "anim": {
-                "*": { "setup.fillColor": [ { "t": 0, "v": "#6a9f5a" }, { "t": 900, "v": "#7ab86a", "ease": "easeInOutSine" }, { "t": 1800, "v": "#6a9f5a", "ease": "easeInOutSine" } ] },
-                "scared": { "setup.fillColor": [ { "t": 0, "v": "#6a9f5a" }, { "t": 260, "v": "#9aae90", "ease": "easeOutQuad" } ] }
+                "*": {
+                  "setup.fillColor": [ { "t": 0, "v": "#6a9f5a" }, { "t": 900, "v": "#7ab86a", "ease": "easeInOutSine" }, { "t": 1800, "v": "#6a9f5a", "ease": "easeInOutSine" } ],
+                  "radius": [ { "t": 0, "v": 0.62 }, { "t": 900, "v": 0.66, "ease": "easeInOutSine" }, { "t": 1800, "v": 0.62, "ease": "easeInOutSine" } ]
+                },
+                "scared": { "setup.fillColor": [ { "t": 0, "v": "#6a9f5a" }, { "t": 260, "v": "#9aae90", "ease": "easeOutQuad" } ] },
+                "linked": { "setup.fillColor": [ { "t": 0, "v": "#6a9f5a" }, { "t": 700, "v": "#c98fb0", "ease": "easeInOutSine" }, { "t": 1400, "v": "#6a9f5a", "ease": "easeInOutSine" } ] }
               }
             },
             { "name": "Seam", "type": "lines", "stroke": true,
               "setup": { "strokeColor": "#2f4f2f", "lineWidth": 2 },
               "segments": [ [[0, -0.42], [0, 0.7]] ] },
             { "name": "Spot L", "type": "circle", "fill": true, "cx": -0.28, "cy": 0.06, "radiusAbs": 3, "setup": { "fillColor": "#3a5f3a" } },
-            { "name": "Spot R", "type": "circle", "fill": true, "cx": 0.28, "cy": 0.06, "radiusAbs": 3, "setup": { "fillColor": "#3a5f3a" } },
-            { "name": "Head", "type": "circle", "fill": true, "cx": 0, "cy": -0.5, "radiusAbs": 9, "setup": { "fillColor": "#4f7f4f", "shadowBlur": 2 } },
+            { "name": "Spot R", "type": "circle", "fill": true, "cx": 0.28, "cy": 0.06, "radiusAbs": 3, "setup": { "fillColor": "#3a5f3a" },
+              "anim": { "*": { "cx": [ { "t": 0, "v": { "base": 0, "r": 0.28 } }, { "t": 900, "v": { "base": 0, "r": 0.42 }, "ease": "easeInOutCubic" }, { "t": 1800, "v": { "base": 0, "r": 0.28 }, "ease": "easeInOutCubic" } ] } } },
+            { "name": "Head", "type": "circle", "fill": true, "cx": 0, "cy": -0.5, "radiusAbs": 9, "setup": { "fillColor": "#4f7f4f", "shadowBlur": 2 },
+              "anim": { "*": { "cx": [ { "t": 0, "v": 0 }, { "t": 900, "v": 0.07, "ease": "easeInOutSine" }, { "t": 1800, "v": 0, "ease": "easeInOutSine" } ] } } },
             { "name": "Eye L", "type": "circle", "fill": true, "cx": -0.12, "cy": -0.52, "radiusAbs": 2.4, "setup": { "fillColor": "#101820" } },
             { "name": "Eye R", "type": "circle", "fill": true, "cx": 0.12, "cy": -0.52, "radiusAbs": 2.4, "setup": { "fillColor": "#101820" } },
             { "name": "Antenna L", "type": "group", "cx": -0.06, "cy": -0.62, "rotation": 0,
               "anim": { "*": { "rotation": [ { "t": 0, "v": 0.05 }, { "t": 900, "v": 0.26, "ease": "easeInOutSine" }, { "t": 1800, "v": 0.05, "ease": "easeInOutSine" } ] } },
               "children": [
                 { "name": "stalk", "type": "lines", "stroke": true, "setup": { "strokeColor": "#2f4f2f", "lineWidth": 1.5 }, "segments": [ [[0, 0], [-0.16, -0.4]] ] },
-                { "name": "tip", "type": "circle", "fill": true, "cx": -0.16, "cy": -0.4, "radiusAbs": 2.4, "setup": { "fillColor": "#cad27a", "shadowBlur": 3 } }
+                { "name": "tip", "type": "circle", "fill": true, "cx": -0.16, "cy": -0.4, "radiusAbs": 2.4, "setup": { "fillColor": "#cad27a", "shadowBlur": 3 },
+                  "anim": { "*": { "setup.fillColor": [ { "t": 0, "v": "#cad27a" }, { "t": 450, "v": "#f0e0a0", "ease": "easeInQuad" }, { "t": 900, "v": "#d0ca8a", "ease": "easeOutQuad" }, { "t": 1350, "v": "#f5e8b0", "ease": "easeInQuad" }, { "t": 1800, "v": "#cad27a", "ease": "easeOutQuad" } ] } } }
               ]
             },
             { "name": "Antenna R", "type": "group", "cx": 0.06, "cy": -0.62, "rotation": 0,
               "anim": { "*": { "rotation": [ { "t": 0, "v": -0.05 }, { "t": 900, "v": -0.26, "ease": "easeInOutSine" }, { "t": 1800, "v": -0.05, "ease": "easeInOutSine" } ] } },
               "children": [
                 { "name": "stalk", "type": "lines", "stroke": true, "setup": { "strokeColor": "#2f4f2f", "lineWidth": 1.5 }, "segments": [ [[0, 0], [0.16, -0.4]] ] },
-                { "name": "tip", "type": "circle", "fill": true, "cx": 0.16, "cy": -0.4, "radiusAbs": 2.4, "setup": { "fillColor": "#cad27a", "shadowBlur": 3 } }
+                { "name": "tip", "type": "circle", "fill": true, "cx": 0.16, "cy": -0.4, "radiusAbs": 2.4, "setup": { "fillColor": "#cad27a", "shadowBlur": 3 },
+                  "anim": { "*": { "setup.fillColor": [ { "t": 0, "v": "#cad27a" }, { "t": 450, "v": "#f0e0a0", "ease": "easeInQuad" }, { "t": 900, "v": "#d0ca8a", "ease": "easeOutQuad" }, { "t": 1350, "v": "#f5e8b0", "ease": "easeInQuad" }, { "t": 1800, "v": "#cad27a", "ease": "easeOutQuad" } ] } } }
               ]
             },
             { "name": "Legs", "type": "lines", "stroke": true,
               "setup": { "strokeColor": "#2f4f2f", "lineWidth": 2 },
-              "segments": [ [[-0.5, 0.1], [-0.86, 0.0]], [[-0.5, 0.34], [-0.86, 0.42]], [[0.5, 0.1], [0.86, 0.0]], [[0.5, 0.34], [0.86, 0.42]] ] }
+              "segments": [ [[-0.5, 0.1], [-0.86, 0.0]], [[-0.5, 0.34], [-0.86, 0.42]], [[0.5, 0.1], [0.86, 0.0]], [[0.5, 0.34], [0.86, 0.42]] ],
+              "anim": {
+                "*": {
+                  "setup.lineWidth": [ { "t": 0, "v": 2 }, { "t": 900, "v": 3.4, "ease": "easeOutCubic" }, { "t": 1800, "v": 2, "ease": "easeInCubic" } ],
+                  "setup.strokeColor": [ { "t": 0, "v": "#2f4f2f" }, { "t": 450, "v": "#5a7a4f", "ease": "easeInSine" }, { "t": 900, "v": "#6a9f5a", "ease": "easeOutSine" }, { "t": 1350, "v": "#4a7f3f", "ease": "easeInOutSine" }, { "t": 1800, "v": "#2f4f2f", "ease": "easeInOutSine" } ]
+                }
+              }
+            }
           ]
         },
         { "name": "Cheer poof", "type": "effectRef", "effect": "poof", "cx": 0, "cy": -0.1, "scale": 1.15,
           "visibleStates": ["happy"],
           "anim": {
             "happy": {
-              "progress": [ { "t": 0, "v": 0 }, { "t": 640, "v": 1, "ease": "linear" } ]
+              "progress": [ { "t": 0, "v": 0 }, { "t": 640, "v": 1, "ease": "linear" } ],
+              "scale": [ { "t": 0, "v": 0.8 }, { "t": 320, "v": 1.5, "ease": "easeOutQuad" }, { "t": 640, "v": 1.0, "ease": "easeInQuad" } ]
+            }
+          }
+        },
+        { "name": "Startle jolt", "type": "effectRef", "effect": "jolt", "cx": 0, "cy": -0.1, "scale": 1.1,
+          "visibleStates": ["scared"],
+          "anim": {
+            "scared": {
+              "progress": [ { "t": 0, "v": 0 }, { "t": 420, "v": 1, "ease": "linear" } ]
             }
           }
         }

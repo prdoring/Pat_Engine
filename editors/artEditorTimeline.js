@@ -1,25 +1,29 @@
 // editors/artEditorTimeline.js
-// Keyframe timeline for the art editor — a canvas dope-sheet forked from the MIDI
-// piano roll (editors/pianoRoll.js): same ruler + draggable playhead, drag-mode
-// mouse model, Ctrl/Cmd+wheel zoom (Shift+wheel pan), and dark themed look, but
-// with one row per animated (shape · property) instead of a pitch grid. Edits go
+// Part-centric keyframe timeline (dope sheet) for the art editor. One row per
+// PART (shape) instead of one row per variable: a diamond marks any time the part
+// has >=1 keyed property (a "pose"). Drag a part diamond to retime the whole pose,
+// right-click to delete it, double-click a row to key the pose at that time, and
+// expand a part (▸) to reveal its per-property channel sub-rows for fine control.
+// Editing a part in the props panel with Auto-key ON drops keys here automatically.
+//
+// Forked from the MIDI piano roll: same ruler + draggable playhead, drag-mode mouse
+// model, Ctrl/Cmd+wheel zoom (Shift+wheel pan), and dark themed look. Edits go
 // through the pure ops in artKeyframes.js; the host owns persistence (ctx.markDirty)
-// and the preview clock (ctx.playhead → previewTransition.animTime, set by the
-// preview each frame). Transport feel mirrors the music editor.
+// and the preview clock (ctx.playhead → previewTransition.animTime).
 
 import { ctx, getShapeAtPath } from './artEditorCtx.js';
 import { Button, Toggle } from './editorShared.js';
-import { renderPreview } from './artEditorPreview.js';
 import {
-  clipMeta, ensureClip, setClipMeta, listTracks, getTrack, setKeyframe,
-  deleteKeyframe, makeLoopable, clipKeys,
+  clipMeta, ensureClip, setClipMeta, getTrack, setKeyframe, deleteKeyframe,
+  makeLoopable, clipKeys, listPartRows, movePose, deletePose, keyPose, getPropValue,
 } from './artKeyframes.js';
 import { sampleTrack } from '/engine/render/interp.js';
 
-const GUTTER = 132;  // left label column
+const GUTTER = 150;  // left label column (wider — holds part names + caret)
 const RULER = 20;    // time ruler height
-const ROW_H = 22;    // property-track row height
+const ROW_H = 22;    // row height (part or channel)
 const HIT = 6;       // px grab radius for diamonds / playhead
+const INDENT = 10;   // px per tree depth in the gutter
 
 export function createArtTimeline(container) {
   injectStyle();
@@ -40,6 +44,8 @@ export function createArtTimeline(container) {
 
   const cx = canvas.getContext('2d');
   let zoom = 1, scrollX = 0, scrollY = 0, drag = null, rows = [];
+  const expanded = new Set();   // path-keys of parts whose channels are shown
+  let lastArt = null;
 
   const dpr = () => window.devicePixelRatio || 1;
   const W = () => parseFloat(canvas.style.width) || 600;
@@ -51,37 +57,64 @@ export function createArtTimeline(container) {
   const xAt = (t) => GUTTER + t * pxPerMs() - scrollX;
   const timeAt = (x) => (x - GUTTER + scrollX) / pxPerMs();
   const clampX = () => { scrollX = Math.max(0, Math.min(scrollX, Math.max(0, duration() * pxPerMs() - (W() - GUTTER)))); };
-  // Vertical row scroll (the ruler stays pinned; only the track rows scroll) so
-  // a tall track list is fully reachable inside a short panel — no page scroll.
   const visRowsH = () => Math.max(0, H() - RULER);
   const maxScrollY = () => Math.max(0, rows.length * ROW_H - visRowsH());
   const clampY = () => { scrollY = Math.max(0, Math.min(scrollY, maxScrollY())); };
+  const samePath = (a, b) => !!(a && b && a.join(',') === b.join(','));
+
+  // ── Row model ───────────────────────────────────────────────────────────────
+  // A flat list of display rows: a 'part' row per animated shape (+ the selected
+  // shape even if unkeyed), each optionally followed by its 'channel' sub-rows.
+  function buildRows() {
+    const a = art(); if (!a) return [];
+    const ck = clipKey();
+    const parts = listPartRows(a, ck);
+    // Always give the selected part a row so you can key it from the timeline.
+    const sel = ctx.selectedShapePath;
+    if (sel && !parts.some((p) => samePath(p.path, sel))) {
+      const shape = getShapeAtPath(a.shapes, sel);
+      if (shape) parts.push({
+        path: [...sel], shape, name: shape.name || shape.type || '?',
+        depth: sel.length - 1, times: [], propCount: 0, selectedEmpty: true,
+      });
+    }
+    const display = [];
+    for (const part of parts) {
+      display.push({ kind: 'part', ...part });
+      if (expanded.has(part.path.join(','))) {
+        const tracks = part.shape.anim && part.shape.anim[ck];
+        if (tracks) for (const prop of Object.keys(tracks)) {
+          display.push({ kind: 'channel', path: part.path, shape: part.shape, prop, keys: tracks[prop], depth: part.depth + 1 });
+        }
+      }
+    }
+    return display;
+  }
 
   // ── Transport bar ──────────────────────────────────────────────────────────
+  let timeReadout = null;
   function buildBar() {
     bar.innerHTML = '';
     if (!art()) return;
-
     const a = art();
     const ck = clipKey();
     const clip = clipMeta(a, ck);
 
-    // play / pause / stop
     const playBtn = Button(ctx.animPlaying ? '❚❚' : '►', () => {
       if (ctx.animPlaying) ctx.stopAnimation(); else ctx.startAnimation();
       buildBar();
     }, 'subtle');
     playBtn.el.title = 'Play / Pause (Space)';
     bar.appendChild(playBtn.el);
-    const stopBtn = Button('■', () => { ctx.playhead = 0; renderPreview(); redraw(); }, 'subtle');
+    const stopBtn = Button('■', () => { ctx.playhead = 0; redraw(); }, 'subtle');
     stopBtn.el.title = 'Stop — rewind playhead to 0 (←)';
     bar.appendChild(stopBtn.el);
 
-    // Key target: ambient "*" (composites under every state) vs the state selected
-    // in the top state bar. The state bar is the single state selector — this only
-    // chooses whether you're keying the always-on ambient clip or the current
-    // state's clip, without leaving that state. (Replaces a redundant state dropdown
-    // that duplicated the top bar and only synced one way.)
+    // Auto-key toggle (mirrors the props panel) — when ON, tweaking a part in the
+    // props panel keys it here at the playhead.
+    bar.appendChild(Toggle('Auto-key', ctx.autoKey, (v) => { ctx.autoKey = v; ctx.rebuildProps?.(); }).el);
+
+    // Key target: ambient "*" (composites under every state) vs the selected state.
     const curState = (ctx.currentEditState && ctx.currentEditState !== 'BASE') ? ctx.currentEditState : null;
     const seg = document.createElement('div'); seg.className = 'kf-keyseg';
     const segLbl = document.createElement('span'); segLbl.className = 'kf-seglabel'; segLbl.textContent = 'Key:';
@@ -93,7 +126,7 @@ export function createArtTimeline(container) {
       b.addEventListener('click', () => {
         if (ctx.keyTargetClip === val) return;
         ctx.keyTargetClip = val; ctx.playhead = 0; scrollX = 0;
-        refresh(); ctx.rebuildProps?.(); renderPreview();
+        refresh(); ctx.rebuildProps?.();
       });
       return b;
     };
@@ -102,21 +135,15 @@ export function createArtTimeline(container) {
     bar.appendChild(seg);
 
     if (!clip) {
-      // Clip not enabled yet for this key target.
-      const add = Button('+ Animate this', () => {
-        ensureClip(a, ck);
-        ctx.markDirty(); refresh();
-      }, 'primary');
+      const add = Button('+ Animate this', () => { ensureClip(a, ck); ctx.markDirty(); refresh(); }, 'primary');
       add.el.title = 'Create a keyframe clip for this target';
       bar.appendChild(add.el);
       addHint();
       return;
     }
 
-    // loop / once
     bar.appendChild(Toggle('Loop', clip.loop !== false, (v) => { setClipMeta(a, ck, { loop: v }); ctx.markDirty(); }).el);
 
-    // duration
     const durWrap = document.createElement('label');
     durWrap.className = 'kf-dur';
     durWrap.textContent = 'len ';
@@ -131,8 +158,8 @@ export function createArtTimeline(container) {
     durWrap.appendChild(durMs);
     bar.appendChild(durWrap);
 
-    // make-loopable for the selected key's track
-    if (ctx.selectedKeyframe) {
+    // Make-loopable applies to a selected single channel key (has a prop).
+    if (ctx.selectedKeyframe && ctx.selectedKeyframe.prop) {
       const mk = Button('Make loopable', () => {
         const sk = ctx.selectedKeyframe;
         const shape = getShapeAtPath(a.shapes, sk.path);
@@ -144,9 +171,6 @@ export function createArtTimeline(container) {
 
     addHint();
   }
-  // The live playhead time is shown in the hint slot (kept compact so the transport
-  // stays a single row); updated by setPlayhead/advance when present.
-  let timeReadout = null;
   function addHint() {
     const t = document.createElement('span');
     t.className = 'kf-time';
@@ -155,8 +179,8 @@ export function createArtTimeline(container) {
     timeReadout = t;
     const hint = document.createElement('span');
     hint.className = 'kf-hint';
-    hint.textContent = 'ruler=scrub · ◆=move · dbl-click=add · ⌃wheel=zoom · wheel=rows';
-    hint.title = 'Drag the ruler to scrub · drag a ◆ to retime · double-click a row to add a key · right-click a ◆ to delete · Ctrl/Cmd+wheel = zoom · Shift+wheel = pan · plain wheel = scroll rows';
+    hint.textContent = 'ruler=scrub · ◆=move pose · dbl-click=key pose · ▸=channels · ⌃wheel=zoom · wheel=rows';
+    hint.title = 'Drag the ruler to scrub · drag a part ◆ to retime the whole pose · double-click a part row to key it · right-click a ◆ to delete the pose · click ▸ to show per-property channels · Ctrl/Cmd+wheel = zoom · Shift+wheel = pan · plain wheel = scroll rows';
     bar.appendChild(hint);
   }
 
@@ -206,22 +230,50 @@ export function createArtTimeline(container) {
     rows.forEach((row, i) => {
       const y = RULER + i * ROW_H - scrollY;
       if (y + ROW_H < RULER || y > h) return; // off-screen
-      const selShape = ctx.selectedShapePath && ctx.selectedShapePath.join(',') === row.path.join(',');
-      // gutter label
-      cx.fillStyle = selShape ? '#1c2636' : (i % 2 ? '#0d131c' : '#0b1018');
+      const selShape = samePath(ctx.selectedShapePath, row.path);
+      const isPart = row.kind === 'part';
+      const indentX = 6 + row.depth * INDENT;
+
+      // row background
+      cx.fillStyle = selShape ? '#1c2636' : (isPart ? (i % 2 ? '#0d131c' : '#0b1018') : '#090d14');
       cx.fillRect(0, y, w, ROW_H);
+
+      // gutter label
       cx.font = '10px monospace'; cx.textBaseline = 'middle'; cx.textAlign = 'left';
-      cx.fillStyle = selShape ? '#d4a056' : '#9fb0c4';
-      cx.fillText(`${trunc(row.name, 10)} · ${trunc(row.prop, 9)}`, 6, y + ROW_H / 2);
+      if (isPart) {
+        // expand caret
+        if (row.propCount > 0) {
+          cx.fillStyle = '#5f7088';
+          cx.fillText(expanded.has(row.path.join(',')) ? '▾' : '▸', indentX, y + ROW_H / 2);
+        }
+        const dim = row.selectedEmpty;
+        cx.fillStyle = dim ? '#4a5a70' : (selShape ? '#d4a056' : '#9fb0c4');
+        cx.fillText(trunc(row.name, Math.max(6, 16 - row.depth * 2)), indentX + 12, y + ROW_H / 2);
+        if (dim) { cx.fillStyle = '#33506a'; cx.fillText('(no keys)', GUTTER - 56, y + ROW_H / 2); }
+      } else {
+        cx.fillStyle = '#7a8aa0';
+        cx.fillText('· ' + trunc(row.prop, Math.max(6, 16 - row.depth)), indentX + 4, y + ROW_H / 2);
+      }
+
       // baseline
       cx.strokeStyle = '#1a2230'; cx.beginPath(); cx.moveTo(GUTTER, y + ROW_H - 0.5); cx.lineTo(w, y + ROW_H - 0.5); cx.stroke();
+
       // diamonds
-      for (let k = 0; k < row.keys.length; k++) {
-        const key = row.keys[k];
-        const x = xAt(key.t); if (x < GUTTER - HIT || x > w + HIT) continue;
-        const sel = ctx.selectedKeyframe && ctx.selectedKeyframe.path.join(',') === row.path.join(',')
-          && ctx.selectedKeyframe.prop === row.prop && Math.abs((ctx.selectedKeyframe.t ?? -1) - key.t) <= 1;
-        diamond(cx, x, y + ROW_H / 2, sel ? 6 : 4, sel ? '#ffe08a' : '#d4a056', sel ? '#fff' : '#7a5a28');
+      const cy = y + ROW_H / 2;
+      if (isPart) {
+        for (const t of row.times) {
+          const x = xAt(t); if (x < GUTTER - HIT || x > w + HIT) continue;
+          const sel = ctx.selectedKeyframe && ctx.selectedKeyframe.pose
+            && samePath(ctx.selectedKeyframe.path, row.path) && Math.abs((ctx.selectedKeyframe.t ?? -1) - t) <= 1;
+          diamond(cx, x, cy, sel ? 6 : 5, sel ? '#ffe08a' : '#d4a056', sel ? '#fff' : '#7a5a28');
+        }
+      } else {
+        for (const key of row.keys) {
+          const x = xAt(key.t); if (x < GUTTER - HIT || x > w + HIT) continue;
+          const sel = ctx.selectedKeyframe && ctx.selectedKeyframe.prop === row.prop
+            && samePath(ctx.selectedKeyframe.path, row.path) && Math.abs((ctx.selectedKeyframe.t ?? -1) - key.t) <= 1;
+          diamond(cx, x, cy, sel ? 5 : 3.5, sel ? '#ffe08a' : '#b88a44', sel ? '#fff' : '#5a4420');
+        }
       }
     });
     cx.restore();
@@ -233,7 +285,7 @@ export function createArtTimeline(container) {
       cx.beginPath(); cx.moveTo(px, 0); cx.lineTo(px, h); cx.stroke();
     }
 
-    // scroll affordance: a slim thumb on the right when rows overflow
+    // scroll thumb
     const maxY = maxScrollY();
     if (maxY > 0) {
       const trackH = h - RULER;
@@ -252,22 +304,41 @@ export function createArtTimeline(container) {
   // ── Hit-testing + interaction ──────────────────────────────────────────────
   const pos = (e) => { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
   function rowAt(y) { if (y < RULER) return -1; const i = Math.floor((y - RULER + scrollY) / ROW_H); return i >= 0 && i < rows.length ? i : -1; }
-  function keyAt(x, y) {
+
+  // Returns the diamond/pose under (x,y): { kind:'pose', row, t } | { kind:'key', row, key } | null
+  function hitAt(x, y) {
     const i = rowAt(y); if (i < 0) return null;
     const row = rows[i];
-    for (let k = 0; k < row.keys.length; k++) {
-      if (Math.abs(xAt(row.keys[k].t) - x) <= HIT) return { row, i, k };
+    if (row.kind === 'part') {
+      for (const t of row.times) if (Math.abs(xAt(t) - x) <= HIT) return { kind: 'pose', row, t };
+    } else {
+      for (const key of row.keys) if (Math.abs(xAt(key.t) - x) <= HIT) return { kind: 'key', row, key };
     }
     return null;
+  }
+  function caretHit(x, row) {
+    if (row.kind !== 'part' || row.propCount === 0) return false;
+    const indentX = 6 + row.depth * INDENT;
+    return x >= indentX - 2 && x <= indentX + 11;
   }
   function selectShape(path) {
     ctx.selectedShapePath = [...path];
     ctx.rebuildTree?.(); ctx.rebuildProps?.();
   }
-  function setPlayhead(t, commit) {
+  function setPlayhead(t) {
     ctx.playhead = Math.max(0, Math.min(duration(), t));
     if (timeReadout) timeReadout.textContent = `${Math.round(ctx.playhead)}ms`;
-    renderPreview(); redraw();
+    redraw();   // update the timeline canvas marker; the preview repaints via the render loop
+  }
+  // Refresh the props panel to reflect time-aware sampled values — only on commit
+  // both live while scrubbing AND on commit — never mid-edit (would steal focus) or
+  // during playback. Scroll is preserved so the panel doesn't jump each frame.
+  function refreshPropsForScrub() {
+    if (ctx.animPlaying) return;
+    if (ctx.propsEl && ctx.propsEl.contains(document.activeElement)) return;
+    const st = ctx.propsEl ? ctx.propsEl.scrollTop : 0;
+    ctx.rebuildProps?.();
+    if (ctx.propsEl) ctx.propsEl.scrollTop = st;
   }
   const arm = () => { window.addEventListener('mousemove', onMove); window.addEventListener('mouseup', onUp); };
 
@@ -275,15 +346,35 @@ export function createArtTimeline(container) {
     if (e.button === 2) return; // right-click handled in contextmenu
     if (!art() || !clipMeta(art(), clipKey())) return;
     const { x, y } = pos(e);
-    if (x < GUTTER && y >= RULER) { const i = rowAt(y); if (i >= 0) selectShape(rows[i].path); return; }
+
+    // gutter: caret toggles channels, else select the part's shape
+    if (x < GUTTER && y >= RULER) {
+      const i = rowAt(y); if (i < 0) return;
+      const row = rows[i];
+      if (caretHit(x, row)) {
+        const k = row.path.join(',');
+        if (expanded.has(k)) expanded.delete(k); else expanded.add(k);
+        refresh();
+      } else {
+        selectShape(row.path);
+      }
+      return;
+    }
     if (y < RULER) { drag = { mode: 'seek' }; setPlayhead(timeAt(x)); arm(); return; }
-    const hit = keyAt(x, y);
-    if (hit) {
-      const key = hit.row.keys[hit.k];
-      ctx.selectedKeyframe = { path: hit.row.path, prop: hit.row.prop, t: key.t, key };
+
+    const hit = hitAt(x, y);
+    if (hit && hit.kind === 'pose') {
       selectShape(hit.row.path);
-      setPlayhead(key.t);
-      drag = { mode: 'key', row: hit.row, key };
+      ctx.selectedKeyframe = { path: [...hit.row.path], t: hit.t, pose: true };
+      setPlayhead(hit.t);
+      drag = { mode: 'pose', shape: hit.row.shape, t: hit.t };
+      buildBar(); arm(); return;
+    }
+    if (hit && hit.kind === 'key') {
+      ctx.selectedKeyframe = { path: [...hit.row.path], prop: hit.row.prop, t: hit.key.t, key: hit.key };
+      selectShape(hit.row.path);
+      setPlayhead(hit.key.t);
+      drag = { mode: 'key', row: hit.row, key: hit.key };
       buildBar(); arm(); return;
     }
     // empty grid → select the row's shape + scrub
@@ -294,12 +385,24 @@ export function createArtTimeline(container) {
   function onMove(e) {
     if (!drag) return;
     const { x } = pos(e);
-    if (drag.mode === 'seek') { setPlayhead(timeAt(x)); return; }
+    if (drag.mode === 'seek') { setPlayhead(timeAt(x)); refreshPropsForScrub(); return; }
+    if (drag.mode === 'pose') {
+      let t = Math.round(Math.max(0, Math.min(duration(), timeAt(x))));
+      t = snapTimeForShape(t, drag.shape, drag.t);
+      if (t !== drag.t) {
+        movePose(drag.shape, clipKey(), drag.t, t);
+        drag.t = t; drag.moved = true;
+        if (ctx.selectedKeyframe) ctx.selectedKeyframe.t = t;
+        rows = buildRows();
+      }
+      setPlayhead(t);
+      return;
+    }
     if (drag.mode === 'key') {
       let t = Math.max(0, Math.min(duration(), timeAt(x)));
-      t = snapTime(t, drag.row, drag.key);
+      t = snapTimeForKeys(t, drag.row.keys, drag.key);
       drag.key.t = t; drag.moved = true;
-      ctx.selectedKeyframe.t = t;
+      if (ctx.selectedKeyframe) ctx.selectedKeyframe.t = t;
       setPlayhead(t);
     }
   }
@@ -310,6 +413,10 @@ export function createArtTimeline(container) {
     if (drag?.mode === 'key' && drag.moved) {
       drag.row.keys.sort((a, b) => a.t - b.t);
       ctx.markDirty(); refresh();
+    } else if (drag?.mode === 'pose' && drag.moved) {
+      ctx.markDirty(); refresh();
+    } else if (drag?.mode === 'seek') {
+      refreshPropsForScrub();
     }
     drag = null;
   }
@@ -317,25 +424,38 @@ export function createArtTimeline(container) {
   function onContext(e) {
     e.preventDefault();
     const { x, y } = pos(e);
-    const hit = keyAt(x, y);
-    if (hit) {
-      const shape = getShapeAtPath(art().shapes, hit.row.path);
-      deleteKeyframe(shape, clipKey(), hit.row.prop, hit.k);
-      if (ctx.selectedKeyframe && ctx.selectedKeyframe.path.join(',') === hit.row.path.join(',')) ctx.selectedKeyframe = null;
-      ctx.markDirty(); refresh();
+    const hit = hitAt(x, y);
+    if (!hit) return;
+    const ck = clipKey();
+    if (hit.kind === 'pose') {
+      deletePose(hit.row.shape, ck, hit.t);
+    } else {
+      const k = hit.row.keys.indexOf(hit.key);
+      if (k >= 0) deleteKeyframe(hit.row.shape, ck, hit.row.prop, k);
     }
+    if (ctx.selectedKeyframe && samePath(ctx.selectedKeyframe.path, hit.row.path)) ctx.selectedKeyframe = null;
+    ctx.markDirty(); refresh();
   }
 
   function onDblClick(e) {
     const { x, y } = pos(e);
     const i = rowAt(y); if (i < 0 || x < GUTTER) return;
     const row = rows[i];
-    const shape = getShapeAtPath(art().shapes, row.path);
-    if (!shape) return;
-    const t = Math.max(0, Math.min(duration(), timeAt(x)));
-    // Insert a key that doesn't disturb the curve: value sampled at that time.
-    const v = sampleTrack(getTrack(shape, clipKey(), row.prop), t);
-    setKeyframe(shape, clipKey(), row.prop, Math.round(t), cloneVal(v));
+    const ck = clipKey();
+    const t = Math.round(Math.max(0, Math.min(duration(), timeAt(x))));
+    if (row.kind === 'part') {
+      // Key the pose: tracked channels get a non-disturbing key (sampled value);
+      // an unkeyed part bootstraps from its current base values.
+      ensureClip(art(), ck);
+      keyPose(row.shape, ck, t, (prop) => {
+        const tr = getTrack(row.shape, ck, prop);
+        const v = tr ? sampleTrack(tr, t) : getPropValue(row.shape, prop);
+        return v && typeof v === 'object' ? JSON.parse(JSON.stringify(v)) : v;
+      });
+    } else {
+      const v = sampleTrack(getTrack(row.shape, ck, row.prop), t);
+      setKeyframe(row.shape, ck, row.prop, t, v && typeof v === 'object' ? JSON.parse(JSON.stringify(v)) : v);
+    }
     ctx.markDirty(); refresh();
   }
 
@@ -348,17 +468,27 @@ export function createArtTimeline(container) {
     } else if (e.shiftKey) {
       e.preventDefault(); scrollX += e.deltaY; clampX(); redraw();
     } else if (maxScrollY() > 0) {
-      // plain vertical wheel scrolls the track rows (ruler stays pinned)
       e.preventDefault(); scrollY += e.deltaY; clampY(); redraw();
     }
   }
 
-  function snapTime(t, row, key) {
-    const px = (ms) => xAt(ms);
+  // Snap a dragged time to clip ends + a shape's other pose times.
+  function snapTimeForShape(t, shape, excludeT) {
     const targets = [0, duration()];
-    for (const k of row.keys) if (k !== key) targets.push(k.t);
+    const tracks = shape.anim && shape.anim[clipKey()];
+    if (tracks) for (const prop of Object.keys(tracks)) {
+      for (const k of tracks[prop]) if (Math.abs(k.t - excludeT) > 1) targets.push(k.t);
+    }
+    return snapToTargets(t, targets);
+  }
+  function snapTimeForKeys(t, keys, exclude) {
+    const targets = [0, duration()];
+    for (const k of keys) if (k !== exclude) targets.push(k.t);
+    return snapToTargets(t, targets);
+  }
+  function snapToTargets(t, targets) {
     let best = t, bestPx = 8;
-    for (const tg of targets) { const d = Math.abs(px(tg) - px(t)); if (d < bestPx) { bestPx = d; best = tg; } }
+    for (const tg of targets) { const d = Math.abs(xAt(tg) - xAt(t)); if (d < bestPx) { bestPx = d; best = tg; } }
     return best;
   }
 
@@ -372,8 +502,9 @@ export function createArtTimeline(container) {
   // ── Public API ─────────────────────────────────────────────────────────────
   function refresh() {
     if (!art()) { rows = []; bar.innerHTML = ''; canvas.height && (cx.setTransform(dpr(), 0, 0, dpr(), 0, 0), cx.clearRect(0, 0, W(), H())); return; }
+    if (art() !== lastArt) { expanded.clear(); lastArt = art(); }
     if (!ctx.keyTargetClip || !clipKeyValid(ctx.keyTargetClip)) ctx.keyTargetClip = defaultClip();
-    rows = clipMeta(art(), clipKey()) ? listTracks(art(), clipKey()) : [];
+    rows = clipMeta(art(), clipKey()) ? buildRows() : [];
     clampY();
     buildBar(); resize(); redraw();
   }
@@ -388,6 +519,12 @@ export function createArtTimeline(container) {
     if (keys.length) return keys[0];
     const states = (ctx.discoveredStates || []).filter((s) => s !== 'BASE');
     return states.length ? states[0] : '*';
+  }
+  /** Lightweight re-list + redraw (no resize/bar rebuild) — used after a props-panel
+   *  edit so an auto-keyed diamond appears live without the cost of a full refresh. */
+  function redrawRows() {
+    if (!art() || !clipMeta(art(), clipKey())) return;
+    rows = buildRows(); clampY(); redraw();
   }
   /** Advance the playhead while playing (called from the preview tick). */
   function advance(dtMs) {
@@ -411,15 +548,14 @@ export function createArtTimeline(container) {
   }
 
   requestAnimationFrame(resize);
-  return { el, refresh, redraw, advance, destroy };
+  return { el, refresh, redraw, redrawRows, advance, destroy };
 }
 
 // ── helpers ──
-const cloneVal = (v) => (v && typeof v === 'object' ? JSON.parse(JSON.stringify(v)) : v);
-const trunc = (s, n) => (s.length > n ? s.slice(0, n - 1) + '…' : s);
+const trunc = (s, n) => (String(s).length > n ? String(s).slice(0, n - 1) + '…' : String(s));
 const clip2 = (s, n = 12) => trunc(String(s), n);
 function niceStep(dur, px) {
-  const target = Math.max(40, px / 8);           // ~one label per 40-80px
+  const target = Math.max(40, px / 8);
   const msPerPx = dur / Math.max(1, px);
   const raw = target * msPerPx;
   const pow = Math.pow(10, Math.floor(Math.log10(raw)));

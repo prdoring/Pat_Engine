@@ -1,7 +1,7 @@
 // Shape property panel and per-type editors for the art editor.
 // Builds the right-side property panel when a shape is selected.
 
-import { ctx, getShapeAtPath, SHAPE_ICONS, createStateProxy } from './artEditorCtx.js';
+import { ctx, getShapeAtPath, SHAPE_ICONS, createStateProxy, createAnimProxy, editValueAt, commitShapeEdit } from './artEditorCtx.js';
 import { collectAvailableVars } from './artEditorTree.js';
 import { VFX_DEFS } from '/engine/data/vfx.js';
 import { rotateShapeAroundCenter } from './artEditorPreview.js';
@@ -10,7 +10,7 @@ import {
   PropertyGroup, CoordEditor, TagListEditor, setCoordReadout,
 } from './editorShared.js';
 import {
-  keyframeableProps, getPropValue, getTrack, setKeyframe, deleteTrack, ensureClip, makeLoopable, clipMeta,
+  keyframeableProps, getPropValue, getTrack, setKeyframe, deleteTrack, ensureClip, makeLoopable, clipMeta, keyPose,
 } from './artKeyframes.js';
 
 // Live "= N px" readout under each CoordEditor: resolves the static terms
@@ -62,11 +62,23 @@ export function buildShapeProps() {
   const rawShape = getShapeAtPath(art.shapes, ctx.selectedShapePath);
   if (!rawShape) { buildAssetPanel(art); return; }
 
-  // Proxy routes property reads/writes through state overrides when editing non-BASE
-  const shape = createStateProxy(rawShape, ctx.currentEditState);
+  // Two composed proxies: the inner state proxy routes reads/writes through state
+  // overrides when editing non-BASE; the outer anim proxy makes a keyframed prop
+  // READ its sampled value at the playhead and an edit WRITE a keyframe (auto-key).
+  // Per-type editors below are unchanged — they just see "the shape".
+  const shape = createAnimProxy(
+    createStateProxy(rawShape, ctx.currentEditState),
+    rawShape,
+    () => ctx.keyTargetClip || '*',
+    () => ctx.playhead || 0,
+    () => ctx.autoKey,
+  );
 
   const onDirty = () => {
     ctx.markDirty();
+    // An edit may have auto-keyed a diamond — reflect it on the timeline live
+    // (lightweight re-list + redraw; no focus-stealing props rebuild).
+    ctx.timeline?.redrawRows?.();
     // Refresh overrides summary without full rebuild (avoids losing focus)
     const existingOverrides = ctx.propsEl.querySelector('.overrides-section');
     if (existingOverrides) {
@@ -133,9 +145,9 @@ export function buildShapeProps() {
     case 'effectRef': buildEffectRefEditor(ctx.propsEl, shape, availableVars, onDirty); break;
   }
 
-  // Keyframe panel: explicit per-property ◆ keying into the timeline's key-target
-  // clip, plus a guided "add looping motion" generator (the low-friction on-ramp).
-  buildKeyframePanel(ctx.propsEl, rawShape, ctx.selectedShapePath, onDirty);
+  // Keyframe panel: Auto-key toggle + one "Key part" button, with per-channel
+  // controls + the guided generator tucked under an "Advanced channels" disclosure.
+  buildKeyframePanel(ctx.propsEl, rawShape, shape, onDirty);
 
   // Setup section (use proxy — auto-creates setup overrides in non-BASE state)
   buildSetupEditor(ctx.propsEl, shape, availableVars, onDirty);
@@ -341,14 +353,20 @@ function buildCircleEditor(parent, shape, vars, onDirty) {
   parent.appendChild(CoordEditor('cy', shape.cy, vars, v => set('cy', v)).el);
 
   const r = ctx.previewRadius || 60;
+  const clipKey = ctx.keyTargetClip || '*';
   if (shape.radiusAbs !== undefined) {
-    if (typeof shape.radiusAbs === 'object' && shape.radiusAbs !== null) {
-      // Animated absolute radius, e.g. { base: 18, breathe: 6 }. Use the anim-var
-      // editor so the object is editable and its terms are preserved (a plain
-      // NumberSlider would render NaN and flatten it on first edit).
+    const ra = shape.radiusAbs; // sampled value when this radius is keyframed
+    const raTracked = !!getTrack(shape, clipKey, 'radiusAbs');
+    if (typeof ra === 'object' && ra !== null && !raTracked) {
+      // Static anim-var object (no keyframe track), e.g. { base: 18, breathe: 6 }:
+      // the component editor preserves its terms (a NumberSlider would flatten it).
       parent.appendChild(buildAnimVarEditor('Radius (abs px)', shape, 'radiusAbs', vars, 0.1, 60, 0.5, onDirty));
     } else {
-      parent.appendChild(NumberSlider('Radius (abs px)', 0.1, 60, 0.5, shape.radiusAbs, v => set('radiusAbs', v)).el);
+      // Plain number, or a KEYFRAMED radiusAbs (the proxy returns the sampled value
+      // and routes the edit to a keyframe). Show the scalar so the slider edits the
+      // pose at the playhead; coerceToTrack keeps a coord-object track object-shaped.
+      const cur = (typeof ra === 'object' && ra !== null) ? (ra.base ?? 0) : ra;
+      parent.appendChild(NumberSlider('Radius (abs px)', 0.1, 60, 0.5, cur, v => set('radiusAbs', v)).el);
     }
     parent.appendChild(radiusModeToggle('→ use r-relative radius', () => {
       const px = typeof shape.radiusAbs === 'object' ? (shape.radiusAbs.base || 0) : shape.radiusAbs;
@@ -378,8 +396,38 @@ function buildCircleEditor(parent, shape, vars, onDirty) {
   }
 }
 
+// A time-aware [x,y] number row for an array-point at `propPath` (e.g. `points.2`,
+// `segments.0.1`, `curves.1.cp`). Shows the value sampled at the playhead and routes
+// edits through commitShapeEdit (keyframe / state override / base) — so the fields
+// animate on scrub/playback and editing a coordinate keys it, exactly like a canvas
+// drag of that vertex.
+function livePointRow(rawShape, propPath, onDirty, labelText) {
+  const row = document.createElement('div');
+  row.style.cssText = 'display:flex;gap:4px;align-items:center;';
+  if (labelText != null) {
+    const lbl = document.createElement('span');
+    lbl.style.cssText = 'color:#5a4a30;font-size:10px;width:30px;';
+    lbl.textContent = labelText;
+    row.appendChild(lbl);
+  }
+  const cur = () => { const v = editValueAt(rawShape, propPath); return Array.isArray(v) ? v : [0, 0]; };
+  for (let ci = 0; ci < 2; ci++) {
+    const inp = document.createElement('input');
+    inp.type = 'number'; inp.className = 'editor-num-input';
+    inp.style.width = '70px'; inp.step = 0.05; inp.value = cur()[ci];
+    const idx = ci;
+    inp.addEventListener('change', () => {
+      const p = [...cur()]; p[idx] = parseFloat(inp.value) || 0;
+      commitShapeEdit(rawShape, propPath, p); onDirty();
+    });
+    row.appendChild(inp);
+  }
+  return row;
+}
+
 function buildPathEditor(parent, shape, vars, onDirty) {
   const set = (k, v) => { shape[k] = v; onDirty(); };
+  const rawShape = getShapeAtPath(ctx.currentArt.shapes, ctx.selectedShapePath) || shape;
 
   parent.appendChild(NumberSlider('Rotation', -Math.PI, Math.PI, 0.05, shape.rotation || 0, v => set('rotation', v)).el);
   parent.appendChild(Toggle('Closed', shape.closed || false, v => set('closed', v)).el);
@@ -415,18 +463,7 @@ function buildPathEditor(parent, shape, vars, onDirty) {
           ptGroup.addChild(CoordEditor('x', _pt.x, vars, v => { ensureClone(); pt(i).x = v; onDirty(); }));
           ptGroup.addChild(CoordEditor('y', _pt.y, vars, v => { ensureClone(); pt(i).y = v; onDirty(); }));
         } else if (Array.isArray(_pt)) {
-          const row = document.createElement('div');
-          row.style.cssText = 'display:flex;gap:4px;align-items:center;';
-          const xIn = document.createElement('input');
-          xIn.type = 'number'; xIn.className = 'editor-num-input';
-          xIn.style.width = '70px'; xIn.value = _pt[0]; xIn.step = 0.05;
-          xIn.addEventListener('change', () => { ensureClone(); pt(i)[0] = parseFloat(xIn.value) || 0; onDirty(); });
-          const yIn = document.createElement('input');
-          yIn.type = 'number'; yIn.className = 'editor-num-input';
-          yIn.style.width = '70px'; yIn.value = _pt[1]; yIn.step = 0.05;
-          yIn.addEventListener('change', () => { ensureClone(); pt(i)[1] = parseFloat(yIn.value) || 0; onDirty(); });
-          row.appendChild(xIn); row.appendChild(yIn);
-          ptGroup.body.appendChild(row);
+          ptGroup.body.appendChild(livePointRow(rawShape, `points.${i}`, onDirty));
         }
 
         const delBtn = document.createElement('button');
@@ -453,6 +490,7 @@ function buildPathEditor(parent, shape, vars, onDirty) {
 
 function buildBezierPathEditor(parent, shape, vars, onDirty) {
   const set = (k, v) => { shape[k] = v; onDirty(); };
+  const rawShape = getShapeAtPath(ctx.currentArt.shapes, ctx.selectedShapePath) || shape;
 
   parent.appendChild(NumberSlider('Rotation', -Math.PI, Math.PI, 0.05, shape.rotation || 0, v => set('rotation', v)).el);
   parent.appendChild(Toggle('Closed', shape.closed || false, v => set('closed', v)).el);
@@ -465,18 +503,7 @@ function buildBezierPathEditor(parent, shape, vars, onDirty) {
   // Start point
   if (shape.start && Array.isArray(shape.start)) {
     const startGroup = PropertyGroup('Start');
-    const row = document.createElement('div');
-    row.style.cssText = 'display:flex;gap:4px;align-items:center;';
-    const xIn = document.createElement('input');
-    xIn.type = 'number'; xIn.className = 'editor-num-input';
-    xIn.style.width = '70px'; xIn.value = shape.start[0]; xIn.step = 0.05;
-    xIn.addEventListener('change', () => { shape.start[0] = parseFloat(xIn.value) || 0; onDirty(); });
-    const yIn = document.createElement('input');
-    yIn.type = 'number'; yIn.className = 'editor-num-input';
-    yIn.style.width = '70px'; yIn.value = shape.start[1]; yIn.step = 0.05;
-    yIn.addEventListener('change', () => { shape.start[1] = parseFloat(yIn.value) || 0; onDirty(); });
-    row.appendChild(xIn); row.appendChild(yIn);
-    startGroup.body.appendChild(row);
+    startGroup.body.appendChild(livePointRow(rawShape, 'start', onDirty));
     parent.appendChild(startGroup.el);
   }
 
@@ -486,31 +513,18 @@ function buildBezierPathEditor(parent, shape, vars, onDirty) {
     const group = PropertyGroup(`Curves (${shape.curves.length})`);
     parent.appendChild(group.el);
 
-    function pointRow(label, arr, onChange) {
-      const pg = PropertyGroup(label);
-      const row = document.createElement('div');
-      row.style.cssText = 'display:flex;gap:4px;align-items:center;';
-      const xIn = document.createElement('input');
-      xIn.type = 'number'; xIn.className = 'editor-num-input';
-      xIn.style.width = '70px'; xIn.value = arr[0]; xIn.step = 0.05;
-      xIn.addEventListener('change', () => { arr[0] = parseFloat(xIn.value) || 0; onChange(); });
-      const yIn = document.createElement('input');
-      yIn.type = 'number'; yIn.className = 'editor-num-input';
-      yIn.style.width = '70px'; yIn.value = arr[1]; yIn.step = 0.05;
-      yIn.addEventListener('change', () => { arr[1] = parseFloat(yIn.value) || 0; onChange(); });
-      row.appendChild(xIn); row.appendChild(yIn);
-      pg.body.appendChild(row);
-      return pg;
-    }
-
     function rebuildCurves() {
       group.body.innerHTML = '';
       shape.curves.forEach((c, i) => {
         const cGroup = PropertyGroup(`[${i}]`);
-        if (c.cp1 && Array.isArray(c.cp1)) cGroup.addChild(pointRow('cp1', c.cp1, onDirty));
-        if (c.cp && Array.isArray(c.cp)) cGroup.addChild(pointRow('cp', c.cp, onDirty));
-        if (c.cp2 && Array.isArray(c.cp2)) cGroup.addChild(pointRow('cp2', c.cp2, onDirty));
-        if (c.to && Array.isArray(c.to)) cGroup.addChild(pointRow('to', c.to, onDirty));
+        const addPt = (key) => {
+          if (c[key] && Array.isArray(c[key])) {
+            const pg = PropertyGroup(key);
+            pg.body.appendChild(livePointRow(rawShape, `curves.${i}.${key}`, onDirty));
+            cGroup.addChild(pg);
+          }
+        };
+        addPt('cp1'); addPt('cp'); addPt('cp2'); addPt('to');
 
         const delBtn = document.createElement('button');
         delBtn.className = 'editor-btn editor-btn-danger';
@@ -541,6 +555,7 @@ function buildBezierPathEditor(parent, shape, vars, onDirty) {
 
 function buildLinesEditor(parent, shape, vars, onDirty) {
   const set = (k, v) => { shape[k] = v; onDirty(); };
+  const rawShape = getShapeAtPath(ctx.currentArt.shapes, ctx.selectedShapePath) || shape;
 
   parent.appendChild(NumberSlider('Rotation', -Math.PI, Math.PI, 0.05, shape.rotation || 0, v => set('rotation', v)).el);
   parent.appendChild(Toggle('Stroke', shape.stroke || false, v => set('stroke', v)).el);
@@ -576,21 +591,7 @@ function buildLinesEditor(parent, shape, vars, onDirty) {
             segGroup.addChild(CoordEditor(`${label}.x`, _pt.x, vars, v => { ensureClone(); seg(i)[pi].x = v; onDirty(); }));
             segGroup.addChild(CoordEditor(`${label}.y`, _pt.y, vars, v => { ensureClone(); seg(i)[pi].y = v; onDirty(); }));
           } else if (Array.isArray(_pt)) {
-            const row = document.createElement('div');
-            row.style.cssText = 'display:flex;gap:4px;align-items:center;';
-            const lbl = document.createElement('span');
-            lbl.style.cssText = 'color:#5a4a30;font-size:10px;width:30px;';
-            lbl.textContent = label;
-            row.appendChild(lbl);
-            for (let ci = 0; ci < _pt.length; ci++) {
-              const inp = document.createElement('input');
-              inp.type = 'number'; inp.className = 'editor-num-input';
-              inp.style.width = '60px'; inp.value = _pt[ci]; inp.step = 0.05;
-              const idx = ci;
-              inp.addEventListener('change', () => { ensureClone(); seg(i)[pi][idx] = parseFloat(inp.value) || 0; onDirty(); });
-              row.appendChild(inp);
-            }
-            segGroup.body.appendChild(row);
+            segGroup.body.appendChild(livePointRow(rawShape, `segments.${i}.${pi}`, onDirty, label));
           }
         });
 
@@ -675,26 +676,50 @@ function _kfBump(v, amount) {
 }
 
 /**
- * Explicit keyframe controls for the selected shape: one ◆ button per
- * keyframeable property (sets a key at the current playhead from the live value)
- * plus a guided "looping motion" generator. All keying is explicit — no silent
- * auto-key — so an edit never secretly becomes a keyframe.
+ * Keyframe controls for the selected shape. The headline flow is AUTO-KEY: with
+ * Auto-key ON, scrubbing the timeline and tweaking this part writes keyframes (done
+ * transparently by the anim proxy in buildShapeProps). This panel surfaces the
+ * toggle, a single "Key part" snapshot button, and — under a collapsed "Advanced
+ * channels" disclosure — per-property keying / clear and the guided looping-motion
+ * generator. `shape` is the anim proxy (effective sampled-or-base values); keyframe
+ * writes target `rawShape`.
  */
-function buildKeyframePanel(parent, rawShape, path, onDirty) {
+function buildKeyframePanel(parent, rawShape, shape, onDirty) {
   if (!rawShape) return;
   const props = keyframeableProps(rawShape);
   if (!props.length) return;
   const art = ctx.currentArt;
   const clipKey = ctx.keyTargetClip || '*';
   const clipLabel = clipKey === '*' ? 'Always (every state)' : clipKey;
+  const t = Math.round(ctx.playhead || 0);
+  const partName = rawShape.name || rawShape.type || 'part';
 
   const group = PropertyGroup(`Keyframes → ${clipLabel}`);
 
+  // Headline: Auto-key toggle + a one-click "Key part" snapshot at the playhead.
+  const head = document.createElement('div');
+  head.style.cssText = 'display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:2px 4px;';
+  head.appendChild(Toggle('Auto-key', ctx.autoKey, (v) => {
+    ctx.autoKey = v; ctx.rebuildProps?.(); ctx.rebuildTimeline?.();
+  }).el);
+  const keyBtn = Button(`◆ Key ${partName.slice(0, 12)} @ ${t}ms`, () => {
+    ensureClip(art, clipKey);
+    keyPose(rawShape, clipKey, ctx.playhead || 0, (prop) => _kfCloneVal(getPropValue(shape, prop)));
+    onDirty(); ctx.rebuildTimeline?.(); ctx.rebuildProps?.();
+  }, 'primary');
+  keyBtn.el.title = 'Snapshot this part’s animated channels (or every channel, first time) as a keyframe at the playhead';
+  head.appendChild(keyBtn.el);
+  group.body.appendChild(head);
+
   const hint = document.createElement('div');
-  hint.style.cssText = 'color:#5a4a30;font-size:9px;padding:2px 4px;';
-  hint.textContent = 'Scrub the timeline, then ◆ to set a key at the playhead. Switch clip in the timeline.';
+  hint.style.cssText = 'color:#5a4a30;font-size:9px;padding:1px 4px;';
+  hint.textContent = ctx.autoKey
+    ? 'Auto-key ON · scrub the timeline, then tweak this part — each change keys at the playhead.'
+    : 'Auto-key OFF · edits change the base value. Use “Key part” or the channels below to key.';
   group.body.appendChild(hint);
 
+  // Advanced channels: per-property key / loop / clear + the guided generator.
+  const adv = PropertyGroup('Advanced channels');
   for (const p of props) {
     const track = getTrack(rawShape, clipKey, p.prop);
     const row = document.createElement('div');
@@ -712,17 +737,25 @@ function buildKeyframePanel(parent, rawShape, path, onDirty) {
       loopBtn.el.title = 'Copy the first key to t=end (seamless loop)';
       loopBtn.el.style.cssText += 'font-size:9px;padding:1px 5px;';
       row.appendChild(loopBtn.el);
+      const clrBtn = Button('✕', () => {
+        deleteTrack(rawShape, clipKey, p.prop);
+        onDirty(); ctx.rebuildTimeline?.(); ctx.rebuildProps?.();
+      }, 'subtle');
+      clrBtn.el.title = 'Delete this channel’s track';
+      clrBtn.el.className += ' editor-btn-danger';
+      clrBtn.el.style.cssText += 'font-size:9px;padding:1px 5px;';
+      row.appendChild(clrBtn.el);
     }
-    const keyBtn = Button('◆ key', () => {
+    const keyBtn2 = Button('◆ key', () => {
       ensureClip(art, clipKey);
-      const v = getPropValue(rawShape, p.prop);
+      const v = getPropValue(shape, p.prop); // effective (sampled-or-base) value
       setKeyframe(rawShape, clipKey, p.prop, Math.round(ctx.playhead || 0), _kfCloneVal(v ?? 0));
       onDirty(); ctx.rebuildTimeline?.(); ctx.rebuildProps?.();
     }, 'subtle');
-    keyBtn.el.title = `Set a keyframe for ${p.label} at the playhead`;
-    keyBtn.el.style.cssText += 'font-size:9px;padding:1px 6px;color:#d4a056;';
-    row.appendChild(keyBtn.el);
-    group.body.appendChild(row);
+    keyBtn2.el.title = `Set a keyframe for ${p.label} at the playhead`;
+    keyBtn2.el.style.cssText += 'font-size:9px;padding:1px 6px;color:#d4a056;';
+    row.appendChild(keyBtn2.el);
+    adv.body.appendChild(row);
   }
 
   // Guided generator: a one-click looping motion (min → max → min, easeInOutSine).
@@ -738,14 +771,18 @@ function buildKeyframePanel(parent, rawShape, path, onDirty) {
     const existing = clipMeta(art, clipKey);
     ensureClip(art, clipKey, { duration: existing ? existing.duration : durMs });
     const dur = clipMeta(art, clipKey).duration;
-    const base = getPropValue(rawShape, target.prop) ?? (target.kind === 'coord' ? { base: 0 } : 0);
+    const base = getPropValue(shape, target.prop) ?? (target.kind === 'coord' ? { base: 0 } : 0);
     const peak = _kfBump(_kfCloneVal(base), amount);
     setKeyframe(rawShape, clipKey, target.prop, 0, _kfCloneVal(base), 'easeInOutSine');
     setKeyframe(rawShape, clipKey, target.prop, Math.round(dur / 2), peak, 'easeInOutSine');
     setKeyframe(rawShape, clipKey, target.prop, dur, _kfCloneVal(base), 'easeInOutSine');
     onDirty(); ctx.rebuildTimeline?.(); ctx.rebuildProps?.();
   }, 'primary').el);
-  group.body.appendChild(gen);
+  adv.body.appendChild(gen);
+
+  // Start the Advanced disclosure collapsed (it's the de-emphasized path).
+  adv.el.querySelector('.editor-prop-group-header')?.click();
+  group.body.appendChild(adv.el);
 
   parent.appendChild(group.el);
 }

@@ -3,7 +3,7 @@
 
 import { drawUnifiedArt, setEffectResolver } from '/engine/render/ArtInterpreter.js';
 import { VFX_DEFS } from '/engine/data/vfx.js';
-import { ctx, getShapeAtPath, CONTAINER_TYPES } from './artEditorCtx.js';
+import { ctx, getShapeAtPath, CONTAINER_TYPES, editValueAt, commitShapeEdit } from './artEditorCtx.js';
 
 // Let `effectRef` shapes resolve to VFX effects by id in the preview.
 setEffectResolver((id) => VFX_DEFS[id]);
@@ -11,29 +11,66 @@ import { Select, NumberSlider, Toggle, Button } from './editorShared.js';
 import { getManifest } from './editorManifest.js';
 import { addCoordDelta, addPointDelta } from './artCoordModel.js';
 
-// ─── Animation Loop ──────────────────────────────────────────────────────────
+// ─── Render Loop ───────────────────────────────────────────────────────────────
+// The preview repaints EVERY frame for as long as the editor is mounted, regardless
+// of the transport. This is deliberate and load-bearing: "playing" controls only
+// whether animation TIME advances; painting the current state is unconditional. That
+// way the preview is always a faithful, live reflection of editor state — zoom, pan,
+// undo/redo, edits, selection, state switches — WITHOUT every mutation site having to
+// remember to call renderPreview(). Do NOT gate rendering on ctx.animPlaying, and do
+// NOT scatter one-shot renderPreview() calls after mutations to "make changes show":
+// that is the push-based, hand-maintained-trigger-list model that caused a long tail
+// of "the preview is stale until I move/play" bugs. The loop is the single source of
+// truth for what's on screen.
 
-export function startAnimation() {
-  ctx.animPlaying = true;
+export function startRenderLoop() {
+  if (ctx.renderLoopFrame) return;          // idempotent — never stack loops
   let last = performance.now();
   const tick = () => {
     const t = performance.now();
     const dt = t - last; last = t;
     ctx.animNow = t;
-    // Advance the keyframe playhead (loop / hold-at-end). Frozen during a handle
-    // drag so a grabbed keyframed shape doesn't animate out from under the cursor.
-    if (ctx.timeline && ctx.frozenNow == null) ctx.timeline.advance(dt);
+    // Advance the keyframe playhead (loop / hold-at-end) ONLY while the transport is
+    // playing and no handle drag has frozen time. Painting still happens below either
+    // way, so a paused preview stays live for everything except time itself.
+    if (ctx.animPlaying && ctx.frozenNow == null && ctx.timeline) ctx.timeline.advance(dt);
     renderPreview();
-    ctx.animFrame = requestAnimationFrame(tick);
+    // While playing, the playhead advances every frame, so the props-panel values are
+    // stale unless we re-read them. Sync them here (throttled) so the numbers animate
+    // with the preview instead of freezing until pause. (Scrub-while-paused is synced
+    // by the timeline's refreshPropsForScrub.)
+    if (ctx.animPlaying && ctx.frozenNow == null) syncPlaybackProps(t);
+    ctx.renderLoopFrame = requestAnimationFrame(tick);
   };
-  ctx.animFrame = requestAnimationFrame(tick);
+  ctx.renderLoopFrame = requestAnimationFrame(tick);
 }
 
-export function stopAnimation() {
-  if (ctx.animFrame) cancelAnimationFrame(ctx.animFrame);
-  ctx.animFrame = null;
-  ctx.animPlaying = false;
+// Re-read the props panel's displayed values from the animating shape while playing.
+// A full rebuild is fine at this cadence and reuses the proxy's playhead sampling;
+// throttled to stay cheap, skipped when a props field is focused (don't nuke an edit)
+// and scroll is preserved so the panel doesn't jump.
+let _lastPlaybackPropsSync = 0;
+function syncPlaybackProps(now) {
+  if (!ctx.selectedShapePath) return;
+  if (now - _lastPlaybackPropsSync < 66) return;   // ~15 Hz — visibly live, cheap
+  if (ctx.propsEl && ctx.propsEl.contains(document.activeElement)) return;
+  _lastPlaybackPropsSync = now;
+  const scroll = ctx.propsEl ? ctx.propsEl.scrollTop : 0;
+  ctx.rebuildProps?.();
+  if (ctx.propsEl) ctx.propsEl.scrollTop = scroll;
 }
+
+export function stopRenderLoop() {
+  if (ctx.renderLoopFrame) cancelAnimationFrame(ctx.renderLoopFrame);
+  ctx.renderLoopFrame = null;
+}
+
+// ─── Transport ─────────────────────────────────────────────────────────────────
+// Play/pause toggles ONLY whether animation time advances. Rendering is owned by the
+// always-on render loop above, so these must not touch the rAF.
+
+export function startAnimation() { ctx.animPlaying = true; }
+export function stopAnimation() { ctx.animPlaying = false; }
 
 // ─── Preview Controls ────────────────────────────────────────────────────────
 
@@ -253,21 +290,6 @@ function effectiveShape(shape) {
   return { ...shape, ...overridesMap[state] };
 }
 
-/**
- * Return the mutable target object whose coordinate property should be written
- * when dragging a shape. If the current state overrides the relevant property,
- * returns the state override object so the edit lands in the right place.
- */
-function writeTarget(shape, prop) {
-  const state = ctx.currentEditState === 'BASE' ? ctx.previewState : ctx.currentEditState;
-  if (!state) return shape;
-  const overridesMap = shape.states || shape.stateOverrides;
-  if (!overridesMap || !overridesMap[state]) return shape;
-  const ov = overridesMap[state];
-  if (ov[prop] !== undefined) return ov;
-  return shape;
-}
-
 function getShapeBounds(rawShape, dc) {
   const shape = effectiveShape(rawShape);
   switch (shape.type) {
@@ -483,18 +505,20 @@ function getHandleGeometry(shape, dc) {
   return { anchor, ringR, handleR, rot };
 }
 
-/** Editable vertices / control-points of a shape, in world coords, with setters. */
+/** Editable vertices / control-points of a shape, in world coords, tagged with the
+ *  keyframeable propPath (`points.2`, `segments.0.1`, `curves.1.cp`) so a drag can
+ *  route through commitShapeEdit. `get` reads the raw point (for handle drawing). */
 function getEditablePoints(shape, dc) {
   const pts = [];
-  const add = (container, key) => {
+  const add = (container, key, path) => {
     if (container[key] == null) return;
     const [wx, wy] = resolvePointSimple(container[key], dc);
-    pts.push({ wx, wy, get: () => container[key], set: (np) => { container[key] = np; } });
+    pts.push({ wx, wy, path, get: () => container[key] });
   };
-  if (shape.type === 'path' && shape.points) shape.points.forEach((_, i) => add(shape.points, i));
-  else if (shape.type === 'lines' && shape.segments) shape.segments.forEach(seg => seg.forEach((_, i) => add(seg, i)));
-  else if (shape.type === 'bezierPath') { if (shape.start) add(shape, 'start'); (shape.curves || []).forEach(c => ['cp1', 'cp2', 'to'].forEach(k => c[k] && add(c, k))); }
-  else if (shape.type === 'quadPath') { if (shape.start) add(shape, 'start'); (shape.curves || []).forEach(c => ['cp', 'to'].forEach(k => c[k] && add(c, k))); }
+  if (shape.type === 'path' && shape.points) shape.points.forEach((_, i) => add(shape.points, i, `points.${i}`));
+  else if (shape.type === 'lines' && shape.segments) shape.segments.forEach((seg, s) => seg.forEach((_, i) => add(seg, i, `segments.${s}.${i}`)));
+  else if (shape.type === 'bezierPath') { if (shape.start) add(shape, 'start', 'start'); (shape.curves || []).forEach((c, ci) => ['cp1', 'cp2', 'to'].forEach(k => c[k] && add(c, k, `curves.${ci}.${k}`))); }
+  else if (shape.type === 'quadPath') { if (shape.start) add(shape, 'start', 'start'); (shape.curves || []).forEach((c, ci) => ['cp', 'to'].forEach(k => c[k] && add(c, k, `curves.${ci}.${k}`))); }
   return pts;
 }
 
@@ -615,84 +639,46 @@ function drawShapeHighlight(canvasCtx, dc, shape, style) {
 
 /** Translate a shape's position by dx/dy in art-coordinate space (values / r). */
 function translateShape(shape, dx, dy) {
-  // Determine which object to write to — either the base shape or a state override.
-  // Coords are moved via addCoordDelta/addPointDelta, which PRESERVE object-valued
-  // coords ({ base, r, w, h, <animVar> }) instead of flattening them to a number —
-  // so dragging an animated/abstract coordinate shifts its rest position without
-  // discarding its base offset or animation terms.
+  // Route every affected coordinate through commitShapeEdit so a move keyframes /
+  // state-overrides / edits base per the current context (same rule as the props
+  // panel). Read each coord's on-screen value (editValueAt) so the drag starts where
+  // the shape actually is at the playhead; addCoordDelta/addPointDelta PRESERVE
+  // object-valued coords ({ base, r, w, h, … }) instead of flattening to a number.
   const eff = effectiveShape(shape);
+  const mv = (path, d) => commitShapeEdit(shape, path, addCoordDelta(editValueAt(shape, path) ?? 0, d));
+  const mvPt = (path) => commitShapeEdit(shape, path, addPointDelta(editValueAt(shape, path), dx, dy));
 
   switch (shape.type) {
     case 'circle':
     case 'arc':
-    case 'boltCluster': {
-      const t = writeTarget(shape, 'cx');
-      t.cx = addCoordDelta(eff.cx ?? 0, dx);
-      t.cy = addCoordDelta(eff.cy ?? 0, dy);
-      break;
-    }
-    case 'rect': case 'strokeRect': {
-      const t = writeTarget(shape, 'x');
-      t.x = addCoordDelta(eff.x ?? 0, dx);
-      t.y = addCoordDelta(eff.y ?? 0, dy);
-      break;
-    }
-    case 'roundedRect': {
-      const t = writeTarget(shape, 'x');
-      t.x = addCoordDelta(eff.x ?? 0, dx);
-      t.y = addCoordDelta(eff.y ?? 0, dy);
-      break;
-    }
+    case 'boltCluster':
+      mv('cx', dx); mv('cy', dy); break;
+    case 'rect': case 'strokeRect':
+    case 'roundedRect':
+      mv('x', dx); mv('y', dy); break;
     case 'path': {
-      const t = writeTarget(shape, 'points');
-      const pts = t.points || eff.points;
-      if (pts) for (let i = 0; i < pts.length; i++) pts[i] = addPointDelta(pts[i], dx, dy);
+      const pts = eff.points || [];
+      for (let i = 0; i < pts.length; i++) mvPt(`points.${i}`);
       break;
     }
     case 'bezierPath': {
-      const t = writeTarget(shape, 'start');
-      const start = t.start || eff.start;
-      if (start) t.start = addPointDelta(start, dx, dy);
-      const curves = t.curves || eff.curves;
-      if (curves) for (const c of curves) {
-        if (c.cp1) c.cp1 = addPointDelta(c.cp1, dx, dy);
-        if (c.cp2) c.cp2 = addPointDelta(c.cp2, dx, dy);
-        if (c.to) c.to = addPointDelta(c.to, dx, dy);
-      }
+      if (eff.start) mvPt('start');
+      (eff.curves || []).forEach((c, ci) => ['cp1', 'cp2', 'to'].forEach(k => { if (c[k]) mvPt(`curves.${ci}.${k}`); }));
       break;
     }
     case 'quadPath': {
-      const t = writeTarget(shape, 'start');
-      const start = t.start || eff.start;
-      if (start) t.start = addPointDelta(start, dx, dy);
-      const curves = t.curves || eff.curves;
-      if (curves) for (const c of curves) {
-        if (c.cp) c.cp = addPointDelta(c.cp, dx, dy);
-        if (c.to) c.to = addPointDelta(c.to, dx, dy);
-      }
+      if (eff.start) mvPt('start');
+      (eff.curves || []).forEach((c, ci) => ['cp', 'to'].forEach(k => { if (c[k]) mvPt(`curves.${ci}.${k}`); }));
       break;
     }
     case 'lines': {
-      const t = writeTarget(shape, 'segments');
-      const segs = t.segments || eff.segments;
-      if (segs) for (let s = 0; s < segs.length; s++) {
-        for (let p = 0; p < segs[s].length; p++) segs[s][p] = addPointDelta(segs[s][p], dx, dy);
-      }
+      const segs = eff.segments || [];
+      for (let s = 0; s < segs.length; s++) for (let p = 0; p < segs[s].length; p++) mvPt(`segments.${s}.${p}`);
       break;
     }
-    default: {
-      // Containers (group, radialRepeat, etc.) — translate cx/cy
-      const t = writeTarget(shape, 'cx');
-      if (eff.cx !== undefined || eff.cy !== undefined) {
-        t.cx = addCoordDelta(eff.cx ?? 0, dx);
-        t.cy = addCoordDelta(eff.cy ?? 0, dy);
-      } else {
-        // No position property yet — seed a translate offset.
-        t.cx = round3(dx);
-        t.cy = round3(dy);
-      }
-      break;
-    }
+    default:
+      // Containers (group, radialRepeat, …) — translate cx/cy (seeds from 0 if absent)
+      mv('cx', dx); mv('cy', dy); break;
   }
 }
 
@@ -716,14 +702,15 @@ export function nudgeSelectedShape(dx, dy) {
  * handles it), so no compensation needed.
  */
 export function rotateShapeAroundCenter(shape, newRot, dc) {
+  // Route writes through commitShapeEdit (keyframe / state override / base per context).
   if (shape.type !== 'group' && !CONTAINER_TYPES.has(shape.type)) {
-    shape.rotation = round3(newRot);
+    commitShapeEdit(shape, 'rotation', round3(newRot));
     return;
   }
 
   const anchor = getShapeAnchor(shape, dc);
   const bounds = getShapeBounds(shape, dc);
-  if (!bounds) { shape.rotation = round3(newRot); return; }
+  if (!bounds) { commitShapeEdit(shape, 'rotation', round3(newRot)); return; }
 
   // Children's center in local art-coords (relative to group origin)
   const lcx = (bounds.x + bounds.w / 2 - anchor.x) / dc.r;
@@ -733,10 +720,12 @@ export function rotateShapeAroundCenter(shape, newRot, dc) {
   const cosOld = Math.cos(oldRot), sinOld = Math.sin(oldRot);
   const cosNew = Math.cos(newRot), sinNew = Math.sin(newRot);
 
-  // Adjust cx/cy so that: cx + lcx*cos(R) - lcy*sin(R) stays constant
-  shape.cx = round3(toNum(shape.cx) + lcx * (cosOld - cosNew) - lcy * (sinOld - sinNew));
-  shape.cy = round3(toNum(shape.cy) + lcx * (sinOld - sinNew) + lcy * (cosOld - cosNew));
-  shape.rotation = round3(newRot);
+  // Adjust cx/cy so the visual center stays put as rotation changes.
+  const curCx = toNum(editValueAt(shape, 'cx'));
+  const curCy = toNum(editValueAt(shape, 'cy'));
+  commitShapeEdit(shape, 'cx', round3(curCx + lcx * (cosOld - cosNew) - lcy * (sinOld - sinNew)));
+  commitShapeEdit(shape, 'cy', round3(curCy + lcx * (sinOld - sinNew) + lcy * (cosOld - cosNew)));
+  commitShapeEdit(shape, 'rotation', round3(newRot));
 }
 
 // ─── Preview Mouse Interaction ──────────────────────────────────────────────
@@ -954,8 +943,10 @@ export function setupPreviewInteraction() {
         if (previewDrag.type === 'move') {
           translateShape(shape, dx, dy);
         } else {
+          // Vertex/control-point: route the moved point through the editor's edit
+          // rule (keyframe / state override / base), reading its on-screen value.
           const p = previewDrag.point;
-          p.set(addPointDelta(p.get(), dx, dy));
+          commitShapeEdit(shape, p.path, addPointDelta(editValueAt(shape, p.path), dx, dy));
         }
         ctx.markDirty();
         ctx.rebuildProps();
@@ -965,10 +956,11 @@ export function setupPreviewInteraction() {
         const cy = resolveCoordSimple(shape.cy, dc);
         const newRadPx = Math.max(0.5, Math.hypot(world.x - cx, world.y - cy));
         if (shape.radiusAbs !== undefined) {
-          if (typeof shape.radiusAbs === 'object') shape.radiusAbs = { ...shape.radiusAbs, base: round3(newRadPx) };
-          else shape.radiusAbs = round3(newRadPx);
+          const cur = editValueAt(shape, 'radiusAbs');
+          const nv = (cur && typeof cur === 'object') ? { ...cur, base: round3(newRadPx) } : round3(newRadPx);
+          commitShapeEdit(shape, 'radiusAbs', nv);
         } else {
-          shape.radius = round3(newRadPx / r);
+          commitShapeEdit(shape, 'radius', round3(newRadPx / r));
         }
         ctx.markDirty();
         ctx.rebuildProps();
@@ -989,9 +981,13 @@ export function setupPreviewInteraction() {
   });
 
   const stopDrag = () => {
+    const wasDragging = previewDrag != null;
     previewDrag = null;
     ctx.frozenNow = null;   // resume live animation
     canvas.style.cursor = '';
+    // A drag may have auto-keyed new poses — re-list the timeline rows so the fresh
+    // diamonds show up.
+    if (wasDragging) ctx.rebuildTimeline?.();
   };
   canvas.addEventListener('mouseup', stopDrag);
   canvas.addEventListener('mouseleave', stopDrag);

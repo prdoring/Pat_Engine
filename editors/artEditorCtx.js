@@ -2,6 +2,12 @@
 // All editor modules import ctx and use it for shared mutable state.
 // Cross-module function calls go through callbacks wired by artEditor.js.
 
+import { sampleTrack } from '/engine/render/interp.js';
+import {
+  keyframeableProps, getTrack, setKeyframe, ensureClip, deleteTrack,
+  coerceToTrack, coerceToShapeOf, defaultFor, getPropValue,
+} from './artKeyframes.js';
+
 /** Shared mutable state for the art editor. */
 export const ctx = {
   // Art collections, manifest-driven. `collections[id]` = parsed file data
@@ -35,9 +41,9 @@ export const ctx = {
   // Preview
   saveManagers: {},
   preview: null,
-  animFrame: null,
+  renderLoopFrame: null,     // rAF handle for the ALWAYS-ON preview repaint loop (see startRenderLoop)
   animNow: 0,
-  animPlaying: true,
+  animPlaying: true,         // transport only: whether animation TIME advances (NOT whether we paint)
   previewColor: '#d4a056',
   previewRadius: 60,
   showGrid: true,
@@ -47,7 +53,7 @@ export const ctx = {
   timeline: null,            // the createArtTimeline() instance
   keyTargetClip: '*',        // which clip (state or "*") edits/auto-keys write into
   playhead: 0,               // current clip-local time (ms) shown in the preview
-  autoKey: false,            // when on, editing a property writes a keyframe at the playhead
+  autoKey: true,             // when on, editing a keyframeable prop writes a keyframe at the playhead
   selectedKeyframe: null,    // { path, prop, t } of the picked diamond, or null
 
   // DOM refs
@@ -324,6 +330,221 @@ export function createStateProxy(shape, stateName) {
       return true;
     },
   });
+}
+
+// ─── Anim (keyframe) Edit Proxy ──────────────────────────────────────────────
+
+const ANIM_T_EPS = 1; // ms — keep in sync with artKeyframes' T_EPS
+const _animClone = (v) => (v && typeof v === 'object' ? JSON.parse(JSON.stringify(v)) : v);
+
+/**
+ * Wrap a (state-proxied) shape so the props panel READS the sampled value of a
+ * keyframed property at the playhead and an edit WRITES a keyframe instead of the
+ * base. Composes OUTSIDE createStateProxy so the per-type editors are unchanged.
+ *
+ * SET keys off track-EXISTENCE, not the auto-key toggle:
+ *   - a track exists           → always write a keyframe at the playhead;
+ *   - else auto-key ON & t>0   → create the track (+ seed a t=0 key from the rest);
+ *   - else                     → fall through to the base/override edit (today's path).
+ * The t>0 gate keeps static authoring intact: editing at the start (t=0) with no
+ * track yet sets the rest/base value; you create animation by scrubbing to a time
+ * and tweaking. (Explicit "Key part" / double-click can still key at t=0, and once
+ * any track exists the symmetry rule keys it at t=0 too.) Keyframe ops always
+ * target `rawShape`; clip/time/auto-key are read live via getters so a scrub or
+ * toggle is reflected without rebuilding the proxy.
+ */
+export function createAnimProxy(delegate, rawShape, getClipKey, getPlayhead, getAutoKey) {
+  const props = keyframeableProps(rawShape);
+  const keyable = new Set(props.map((p) => p.prop));
+  const kindOf = new Map(props.map((p) => [p.prop, p.kind]));
+  const setupKeyable = new Set(
+    [...keyable].filter((p) => p.startsWith('setup.')).map((p) => p.slice(6)),
+  );
+  const hasSetupKeyframes = (ck) => {
+    const t = rawShape.anim && rawShape.anim[ck];
+    return !!t && Object.keys(t).some((p) => p.startsWith('setup.'));
+  };
+  const playT = () => Math.round(getPlayhead() || 0);
+
+  function writeKey(prop, v) {
+    const ck = getClipKey();
+    ensureClip(ctx.currentArt, ck);
+    setKeyframe(rawShape, ck, prop, playT(), coerceToTrack(getTrack(rawShape, ck, prop), _animClone(v)));
+  }
+  // First-ever key on a track at t>0: seed a t=0 key from the rest pose so the
+  // change animates rest→pose (shape-matched to the edited value).
+  function seedRest(prop, v, rest) {
+    const ck = getClipKey();
+    if (playT() <= ANIM_T_EPS || getTrack(rawShape, ck, prop)) return;
+    const base = (rest !== undefined) ? rest : defaultFor(kindOf.get(prop) || 'number');
+    setKeyframe(rawShape, ck, prop, 0, coerceToShapeOf(v, _animClone(base)));
+  }
+  // Returns true if the SET was handled as a keyframe; false → caller delegates.
+  function keySet(prop, v, rest) {
+    if (ctx.animPlaying) return false; // playing → playhead advances; don't scatter keys
+    if (getTrack(rawShape, getClipKey(), prop)) { writeKey(prop, v); return true; }
+    if (getAutoKey() && playT() > ANIM_T_EPS) { seedRest(prop, v, rest); writeKey(prop, v); return true; }
+    return false;
+  }
+
+  function animSetupProxy() {
+    return new Proxy({}, {
+      get(_t, key) {
+        if (typeof key === 'symbol') return undefined;
+        if (setupKeyable.has(key)) {
+          const track = getTrack(rawShape, getClipKey(), 'setup.' + key);
+          if (track) return sampleTrack(track, getPlayhead() || 0);
+        }
+        const sd = delegate.setup;
+        return sd ? sd[key] : undefined;
+      },
+      set(_t, key, value) {
+        if (typeof key !== 'symbol' && setupKeyable.has(key)) {
+          const sd = delegate.setup;
+          if (keySet('setup.' + key, value, sd ? sd[key] : undefined)) return true;
+        }
+        if (!delegate.setup) delegate.setup = {};
+        delegate.setup[key] = value;
+        return true;
+      },
+      has(_t, key) { const sd = delegate.setup; return sd ? (key in sd) : false; },
+      ownKeys() { const sd = delegate.setup; return sd ? Reflect.ownKeys(sd) : []; },
+      getOwnPropertyDescriptor(_t, key) {
+        const sd = delegate.setup; if (!sd) return undefined;
+        const d = Reflect.getOwnPropertyDescriptor(sd, key);
+        if (d) d.configurable = true; // target is {}, so reported keys must be configurable
+        return d;
+      },
+    });
+  }
+
+  return new Proxy(rawShape, {
+    get(target, prop) {
+      if (typeof prop === 'symbol') return Reflect.get(delegate, prop);
+      if (prop === 'setup') {
+        // Surface a setup proxy only when there's a setup to edit (or setup tracks)
+        // so buildSetupEditor's "+ Add Setup" affordance still appears otherwise.
+        if (delegate.setup !== undefined || hasSetupKeyframes(getClipKey())) return animSetupProxy();
+        return undefined;
+      }
+      if (keyable.has(prop)) {
+        const track = getTrack(rawShape, getClipKey(), prop);
+        if (track) return sampleTrack(track, getPlayhead() || 0);
+      }
+      return Reflect.get(delegate, prop);
+    },
+    set(target, prop, value) {
+      if (typeof prop !== 'symbol' && keyable.has(prop)) {
+        if (keySet(prop, value, Reflect.get(delegate, prop))) return true;
+      }
+      Reflect.set(delegate, prop, value);
+      return true;
+    },
+    has(target, prop) { return Reflect.has(delegate, prop); },
+    ownKeys(target) { return Reflect.ownKeys(delegate); },
+    getOwnPropertyDescriptor(target, prop) { return Reflect.getOwnPropertyDescriptor(delegate, prop); },
+    deleteProperty(target, prop) {
+      if (typeof prop !== 'symbol' && keyable.has(prop)) deleteTrack(rawShape, getClipKey(), prop);
+      return Reflect.deleteProperty(delegate, prop);
+    },
+  });
+}
+
+// ─── Unified edit routing (canvas drags ↔ props panel) ───────────────────────
+// On-canvas drags and the props-panel widgets must land an edit in the SAME layer,
+// so "however you tweak it, the change goes to the right place." The rule (mirrors
+// the props panel's createAnimProxy over createStateProxy), for a prop `propPath`
+// (possibly dotted: `cx`, `points.2`, `segments.0.1`, `curves.1.cp`) → value:
+//   1. KEYFRAME into the key-target clip at the playhead (seed a t=0 rest key on
+//      first creation) — when a track already exists for the prop, OR auto-key is on
+//      and the playhead is past 0. Never while playing (the playhead is moving).
+//   2. else STATE OVERRIDE (`states[state][…]`) — when a specific state is selected.
+//   3. else BASE.
+// Dotted paths are sampled/applied deeply by the runtime (ArtInterpreter
+// .applySampledOverrides), so keying an individual vertex (`points.2`) animates.
+
+const _idxRe = /^\d+$/;
+const _pathIdx = (p) => (_idxRe.test(p) ? Number(p) : p);
+const _editState = () =>
+  (ctx.currentEditState && ctx.currentEditState !== 'BASE') ? ctx.currentEditState : null;
+
+/** Read a (possibly dotted) prop's authoring value with the selected state's static
+ *  override applied — the pre-keyframe "rest" pose (used to seed the t=0 key). */
+function readEffectiveProp(rawShape, propPath) {
+  const st = _editState();
+  const eff = (st && rawShape.states && rawShape.states[st])
+    ? { ...rawShape, ...rawShape.states[st] } : rawShape;
+  return getPropValue(eff, propPath);
+}
+
+/**
+ * The value of `propPath` as currently shown at the playhead: the key-target clip's
+ * sampled value when a track exists, else the effective rest value. Canvas drags read
+ * this as the drag's starting value so a grab begins from what's on screen and the
+ * written keyframe matches where you dragged to (never clobbers a keyed offset).
+ */
+export function editValueAt(rawShape, propPath) {
+  const ck = ctx.keyTargetClip || '*';
+  const track = getTrack(rawShape, ck, propPath);
+  if (track) {
+    const v = sampleTrack(track, ctx.playhead || 0);
+    if (v !== undefined) return v;
+  }
+  return readEffectiveProp(rawShape, propPath);
+}
+
+/** Deep-write `value` at dotted `propPath` on `target`, cloning the parent from
+ *  `source` when `target` doesn't own it yet (so a state override gets its own copy
+ *  of e.g. `points` before we edit one vertex; base edits mutate in place). */
+function writeDeepPath(target, propPath, value, source) {
+  const parts = propPath.split('.');
+  if (parts.length === 1) { target[parts[0]] = value; return; }
+  const top = parts[0];
+  if (target !== source && target[top] === undefined) {
+    const s = source ? source[top] : undefined;
+    target[top] = Array.isArray(s) ? _animClone(s) : { ...(s || {}) };
+  }
+  let node = target[top];
+  for (let i = 1; i < parts.length - 1; i++) {
+    const k = _pathIdx(parts[i]);
+    if (node[k] === undefined) node[k] = _idxRe.test(parts[i + 1]) ? [] : {};
+    node = node[k];
+  }
+  node[_pathIdx(parts[parts.length - 1])] = value;
+}
+
+/**
+ * Commit an edit of `propPath` → `value` on `rawShape`, routing to keyframe /
+ * state-override / base per the rules above. Callers (canvas drag handlers, arrow-key
+ * nudge) pass the FINAL value. Returns where it landed ('key' | 'state' | 'base').
+ */
+export function commitShapeEdit(rawShape, propPath, value) {
+  const ck = ctx.keyTargetClip || '*';
+  if (!ctx.animPlaying) {
+    const existing = getTrack(rawShape, ck, propPath);
+    const ph = Math.round(ctx.playhead || 0);
+    if (existing || (ctx.autoKey && ph > ANIM_T_EPS)) {
+      ensureClip(ctx.currentArt, ck);
+      if (!existing && ph > ANIM_T_EPS) {
+        const rest = readEffectiveProp(rawShape, propPath);
+        if (rest !== undefined) {
+          setKeyframe(rawShape, ck, propPath, 0, coerceToShapeOf(value, _animClone(rest)));
+        }
+      }
+      setKeyframe(rawShape, ck, propPath, ph,
+        coerceToTrack(getTrack(rawShape, ck, propPath), _animClone(value)));
+      return 'key';
+    }
+  }
+  const st = _editState();
+  if (st) {
+    if (!rawShape.states) rawShape.states = {};
+    if (!rawShape.states[st]) rawShape.states[st] = {};
+    writeDeepPath(rawShape.states[st], propPath, value, { ...rawShape, ...rawShape.states[st] });
+    return 'state';
+  }
+  writeDeepPath(rawShape, propPath, value, rawShape);
+  return 'base';
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────────

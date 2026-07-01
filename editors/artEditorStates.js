@@ -301,6 +301,5 @@ function rebuildPropsForState() {
   } else {
     ctx.clearProps();
   }
-  // Reflect the new state in the preview immediately, even while paused.
-  if (!ctx.animPlaying) ctx.renderPreview?.();
+  // No manual repaint: the always-on render loop reflects the new state next frame.
 }
