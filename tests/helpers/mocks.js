@@ -48,3 +48,29 @@ export function createRecordingCtx() {
   ctx.drawImage = () => { ctx._draws++; };
   return ctx;
 }
+
+// Like createMockCtx but logs the ORDERED sequence of geometry/transform/paint ops
+// (with rounded numeric args + the fill/stroke style + alpha in effect at paint time).
+// `ctx._signature()` joins them into a stable string — a headless "golden" of exactly
+// what a render emitted. Used to assert the shared render path is deterministic and
+// input-responsive (so what the editor previews == what the game draws).
+export function createOpLogCtx() {
+  const ctx = createMockCtx();
+  ctx._ops = [];
+  const round = (n) => (typeof n === 'number' ? Math.round(n * 100) / 100 : n);
+  const rec = (name, capStyle = false) => {
+    ctx[name] = (...args) => {
+      let entry = `${name}(${args.map(round).join(',')})`;
+      if (capStyle) entry += `|f=${ctx.fillStyle}|s=${ctx.strokeStyle}|a=${round(ctx.globalAlpha)}`;
+      ctx._ops.push(entry);
+    };
+  };
+  for (const m of ['translate', 'rotate', 'scale', 'beginPath', 'closePath', 'moveTo',
+                   'lineTo', 'arc', 'arcTo', 'ellipse', 'rect', 'roundRect',
+                   'bezierCurveTo', 'quadraticCurveTo']) rec(m);
+  for (const m of ['fill', 'stroke', 'fillRect', 'strokeRect']) rec(m, true);
+  ctx.createRadialGradient = () => ({ addColorStop: () => {} });
+  ctx.createLinearGradient = () => ({ addColorStop: () => {} });
+  ctx._signature = () => ctx._ops.join(';');
+  return ctx;
+}
