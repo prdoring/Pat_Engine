@@ -113,9 +113,6 @@ Things in the repo that assume an agent may be doing some of the work:
 
 ## Built with Pat_Engine
 
-Two of my games share this engine: it was extracted from the first and powers the
-second. Click through to play them.
-
 <table>
 <tr>
 <th align="left"><a href="https://patssubgame.com/">Sub Game</a></th>
