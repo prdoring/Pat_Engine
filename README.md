@@ -13,13 +13,31 @@ for exactly that).
 
 The engine isn't an npm dependency. There's no package to depend on and no version to
 track: it's a small, readable runtime you copy into your project, and from then on it's
-yours to edit. Pull the repo and explore the example game first:
+yours to edit.
+
+You need three things installed, all of which you likely have:
+
+- [Node.js](https://nodejs.org) 20.11 or newer (npm comes with it).
+- git, to clone the repo.
+- Any current browser. No build tools, no global installs.
+
+Pull the repo and explore the example game first:
 
 ```sh
 git clone https://github.com/prdoring/Pat_Engine.git
 cd Pat_Engine
-npm install          # one dependency (ws); Node 20.11+
+npm install          # installs the engine's one dependency (ws)
 npm start
+```
+
+Or skip the manual steps and paste this into your coding agent (Claude Code, Cursor,
+Codex, whatever you use):
+
+```text
+Clone https://github.com/prdoring/Pat_Engine.git, run npm install (needs Node 20.11+),
+then npm start, and verify http://localhost:6970/ and http://localhost:6970/editor both
+load with no console errors. Then read AGENTS.md at the repo root: it is the guide for
+building games and assets on this engine.
 ```
 
 - **Game:** <http://localhost:6970/>. Click the ground to spawn critters, click a
@@ -33,6 +51,9 @@ npm start
 npm test        # unit + parity tests (Node --test, no dev-dependencies)
 npm run smoke   # boots every page in a headless system Chrome/Edge; fails on console errors
 ```
+
+The smoke test uses whatever Chrome or Edge is already on your machine (set `BROWSER=/path/to/chrome`
+to point it somewhere specific) and skips itself if it can't find one. Nothing extra to install.
 
 When you're ready to build your own game, the scaffold script copies the engine baseline
 (with the example game as a starting point) into a fresh folder, renames the package, and
