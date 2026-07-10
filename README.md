@@ -1,5 +1,9 @@
 # Pat_Engine
 
+> Hi, I'm Pat. I like to make fun little games for my own enjoyment and to share with my
+> friends. After a few of these I started building tooling I could reuse for new ones,
+> and polished those tools into this engine. It will keep evolving as I make more stuff.
+
 A no-build 2D engine for the browser. Art is vector JSON drawn on Canvas2D, sound is
 Web-Audio synthesis, music is JSON note patterns: a game's creative content is a folder
 of data files, not a folder of binaries. Every format has a built-in browser editor, and
