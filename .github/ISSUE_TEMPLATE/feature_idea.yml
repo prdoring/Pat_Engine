@@ -1,0 +1,18 @@
+name: Feature idea
+description: A new generic primitive, editor improvement, or engine capability
+labels: [enhancement]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: The idea
+      description: What should the engine or editors be able to do?
+    validations:
+      required: true
+  - type: textarea
+    id: generic
+    attributes:
+      label: How is it game-agnostic?
+      description: >
+        The engine never knows what game it runs, so new capabilities must be generic
+        primitives any game could use (see AGENTS.md). How would this one stay generic?

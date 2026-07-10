@@ -1,0 +1,38 @@
+name: Bug report
+description: Something broken in the engine, editors, or example game
+labels: [bug]
+body:
+  - type: input
+    id: where
+    attributes:
+      label: Where
+      description: Which page or subsystem (game, an editor tab, /shots, server, a specific engine module)?
+      placeholder: e.g. Art editor keyframe timeline
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. npm start, open /editor
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected vs actual
+    validations:
+      required: true
+  - type: textarea
+    id: console
+    attributes:
+      label: Console output
+      description: Any errors or warnings from the browser console (F12) or the terminal.
+      render: text
+  - type: input
+    id: env
+    attributes:
+      label: Environment
+      placeholder: e.g. Chrome 140 / Windows 11 / Node 22
