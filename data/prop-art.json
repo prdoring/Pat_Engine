@@ -57,6 +57,48 @@
       ]
     },
 
+    "patLogo": {
+      "name": "Pat_Engine Mark",
+      "states": ["idle"],
+      "setup": { "lineWidth": 4 },
+      "animations": {
+        "*": { "duration": 1600, "loop": true }
+      },
+      "shapes": [
+        { "name": "Badge", "type": "circle", "fill": true, "cx": 0, "cy": 0, "radius": 1.0,
+          "setup": { "fillColor": "#0b101c" } },
+        { "name": "Ring", "type": "circle", "stroke": true, "cx": 0, "cy": 0, "radius": 0.94,
+          "setup": { "strokeColor": "#d4a056", "lineWidth": 2.5, "alpha": 0.9, "shadowBlur": 8 } },
+        { "name": "P stem", "type": "lines", "stroke": true,
+          "setup": { "strokeColor": "#d4a056", "lineWidth": 4.5, "lineCap": "round", "shadowBlur": 5 },
+          "segments": [ [[-0.34, -0.44], [-0.34, 0.44]] ] },
+        { "name": "P bowl", "type": "arc", "stroke": true, "cx": -0.34, "cy": -0.21, "radius": 0.23,
+          "startAngle": "-PI/2", "endAngle": "PI/2",
+          "setup": { "strokeColor": "#d4a056", "lineWidth": 4.5, "lineCap": "round", "shadowBlur": 5 } },
+        { "name": "Cursor", "type": "rect", "fill": true,
+          "x": 0.02, "y": 0.32, "w": 0.42, "h": 0.11,
+          "setup": { "fillColor": "#d4a056", "shadowBlur": 7 },
+          "anim": {
+            "*": {
+              "setup.alpha": [
+                { "t": 0, "v": 1 }, { "t": 700, "v": 1 }, { "t": 800, "v": 0.15 },
+                { "t": 1500, "v": 0.15 }, { "t": 1600, "v": 1 }
+              ]
+            }
+          } },
+        { "name": "Keyframe diamond", "type": "path", "fill": true, "closed": true,
+          "setup": { "fillColor": "#33ddcc", "shadowBlur": 6 },
+          "points": [[0.34, -0.38], [0.46, -0.24], [0.34, -0.10], [0.22, -0.24]],
+          "anim": {
+            "*": {
+              "setup.alpha": [
+                { "t": 0, "v": 0.75 }, { "t": 800, "v": 1, "ease": "easeInOutSine" }, { "t": 1600, "v": 0.75, "ease": "easeInOutSine" }
+              ]
+            }
+          } }
+      ]
+    },
+
     "logo": {
       "name": "Garden Emblem",
       "states": ["idle"],

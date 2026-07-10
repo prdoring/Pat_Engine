@@ -24,6 +24,20 @@ export class TitleScene extends Scene {
       ctx.restore();
     }
 
+    // Engine mark, bottom-right corner. Vector art like everything else. The
+    // asset's stroke widths are tuned for r=46, so scale the ctx down rather
+    // than shrinking r (keeps line weights proportional).
+    const mark = art.props.patLogo;
+    if (mark) {
+      ctx.save();
+      ctx.globalAlpha = 0.85;
+      ctx.translate((canvas.clientWidth || canvas.width) - 44, (canvas.clientHeight || canvas.height) - 44);
+      const s = 20 / 46;
+      ctx.scale(s, s);
+      drawUnifiedArt(ctx, 46, '#d4a056', mark, 'idle', now);
+      ctx.restore();
+    }
+
     ctx.save();
     ctx.textAlign = 'center';
     ctx.fillStyle = PALETTE.hud;
