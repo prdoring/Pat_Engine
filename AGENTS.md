@@ -1,15 +1,15 @@
-# Pat_Engine — Agent Guide
+# Pat_Engine: Agent Guide
 
 > Audience: **AI coding agents** building a game on top of this engine. This is the
 > "how to think and what not to break" document. For the terse API cheat-sheet see
 > `ENGINE.md`; for run/config see `README.md`. When those disagree with the code, the
-> code wins — verify before relying on a signature.
+> code wins; verify before relying on a signature.
 
 Pat_Engine is a **no-build, vanilla-JS, browser-native 2D engine**. The browser loads ES
 modules directly by absolute path; JSON loads via import attributes. There is no bundler,
 no transpiler, no framework. It ships with one example game, **Critter Garden**, which
 exists to exercise every subsystem and to be read as a worked example. Read the example
-before writing new code — it is the canonical reference implementation of every pattern
+before writing new code; it is the canonical reference implementation of every pattern
 below.
 
 ---
@@ -22,7 +22,7 @@ named `spawnChirp`, or any other game-specific noun. Game vocabulary lives in `d
 (content) and `game/` (behavior). The engine only deals in generic primitives: shapes,
 effects, sounds, sequences, signals, bodies, cameras.
 
-If you find yourself about to type a game word inside `engine/`, stop — you are about to
+If you find yourself about to type a game word inside `engine/`, stop: you are about to
 leak. The fix is almost always "express it as data" or "pass it in as a parameter."
 
 **The test for every line of engine code:** *would this still make sense, unchanged, in a
@@ -59,11 +59,11 @@ editors/ ─────────▶  game/          ❌ NEVER
 `engine/data/*.js` (`art.js`, `vfx.js`, `sounds.js`, `fxSequences.js`) import the
 project's JSON **by path** (`/data/vfx.json`, etc.) and deep-clone it into registries.
 This is the intentional content-binding seam. It is allowed because these loaders treat
-the data as **opaque content** — they never hardcode an id, state name, or category. They
+the data as **opaque content**: they never hardcode an id, state name, or category. They
 expose whatever the project authored:
 
 ```js
-// engine/data/sounds.js — derives the id/category maps FROM the data, never hardcodes them
+// engine/data/sounds.js: derives the id/category maps FROM the data, never hardcodes them
 export const SOUND_CONFIG  = sfxData.sounds || {};
 export const SoundCategory = /* unique categories found in the data */;
 export const SoundId       = /* { id: id } for every key in the data */;
@@ -98,13 +98,13 @@ When editing or adding code, enforce these. Treat a violation as a bug, not a st
    `buildArtRegistry` / the `engine/data/*` loaders (they deep-clone). Never mutate a raw
    import.
 8. **No `eval` / no strict-CSP breakers.** The art angle-expression evaluator is a small
-   safe arithmetic parser — do not reintroduce `new Function`/`eval`.
+   safe arithmetic parser; do not reintroduce `new Function`/`eval`.
 9. **When in doubt, parameterize.** Engine code that needs a game value takes it as a
    constructor option or method argument (see `BackgroundRenderer(layers)`,
    `Camera(canvas, {minZoom, maxZoom})`, `SoundManager({reverbCutoff})`).
 
-If a change genuinely needs the engine to do something new and generic, that's legitimate
-— add it as a reusable primitive with a game-agnostic name and document it. Improving the
+If a change genuinely needs the engine to do something new and generic, that's legitimate:
+add it as a reusable primitive with a game-agnostic name and document it. Improving the
 engine is fine; teaching it about your game is not.
 
 ---
@@ -114,7 +114,7 @@ engine is fine; teaching it about your game is not.
 `game/main.js` is the **only** place that knows about both the engine and the game. It
 constructs engine services, builds the art registry, defines the signal handler, assembles
 a `shared` services object, creates scenes, and starts the loop. The actual Critter Garden
-wiring (read it — it's ~50 lines):
+wiring (read it; it's ~50 lines):
 
 ```js
 const camera          = new Camera(canvas);
@@ -125,7 +125,7 @@ const effects         = new EffectsManager();
 const effectsRenderer = new EffectsRenderer(ctx, camera);
 const art             = buildArtRegistry({ critters: critterArt, props: propArt });
 
-// The orchestration seam — see §5. Signals from sequences mutate game entities here.
+// The orchestration seam (see §5). Signals from sequences mutate game entities here.
 function onSignal(name, data, opts) {
   const e = opts?.entity;
   if (!e) return;
@@ -148,7 +148,7 @@ game.start(titleScene);
 
 **The `shared` object** is the dependency-injection container. Every scene receives it and
 pulls what it needs. Scenes reach other scenes via `shared.scenes` and switch via
-`shared.game.setScene(...)`. This keeps scenes decoupled — they never import each other.
+`shared.game.setScene(...)`. This keeps scenes decoupled: they never import each other.
 
 ### The `Game` shell (`engine/core/Game.js`)
 
@@ -157,7 +157,7 @@ pulls what it needs. Scenes reach other scenes via `shared.scenes` and switch vi
 - **Canvas sizing** (`autoResize` tracks `window.innerWidth/Height`).
 - **The RAF loop**: `clear → background.draw → scene.update → scene.render → volume overlay`.
   The whole frame body is wrapped in `try/catch` with `resetCanvasState`, and the
-  `requestAnimationFrame` reschedule lives in `finally` — **a throw can never freeze the
+  `requestAnimationFrame` reschedule lives in `finally`: **a throw can never freeze the
   loop.** Don't "fix" this by moving the reschedule out of `finally`.
 - **Input routing** to the active scene: `onKeydown/onKeyup` (window), `onMousedown/
   Move/Up` and `onWheel` (canvas, in **screen/offset coords**). Right-click context menu is
@@ -174,7 +174,7 @@ Extend `Scene` and override what you need; all methods default to no-ops:
 ```js
 class MyScene extends Scene {
   enter(data) {}          // set up state, start ambience
-  exit() {}               // tear down — stop loops/sequences/effects (see §9 lifecycle)
+  exit() {}               // tear down: stop loops/sequences/effects (see §9 lifecycle)
   update(now) {}          // sim + input → state (now = ms timestamp)
   render(now) {}          // draw only; no state mutation
   onKeydown(e) {} onKeyup(e) {}
@@ -184,14 +184,14 @@ class MyScene extends Scene {
 ```
 
 **Rules:** scenes own all their state; `update` mutates, `render` only draws; mouse
-coordinates arrive in **screen space** — convert with `camera.screenToWorld(x, y)` before
+coordinates arrive in **screen space**; convert with `camera.screenToWorld(x, y)` before
 hit-testing world entities.
 
 ---
 
 ## 4. The headline best practice: fire a sequence, don't one-off
 
-Every reactive moment in the game — a spawn, a hit, a pickup, a death, a level-up — is
+Every reactive moment in the game (a spawn, a hit, a pickup, a death, a level-up) is
 almost always **a coordinated burst of sound + visual effect + state change, often spread
 over time**. The wrong way is to scatter those across gameplay code:
 
@@ -238,7 +238,7 @@ That single sequence drives **state-in → vfx → sfx → (delay) → state-out
 
 - **One source of truth.** The reaction lives in one place, as data.
 - **Editable without code.** Open the **Sequences editor** (`/editor`), tweak timing /
-  swap the sound / change the effect, hit save, reload — no code change. The editor has a
+  swap the sound / change the effect, hit save, reload; no code change. The editor has a
   live preview.
 - **Decoupled.** Gameplay code says *what happened* (`critterPet`), not *how it looks/
   sounds*. Artists/designers own the "how."
@@ -249,17 +249,17 @@ That single sequence drives **state-in → vfx → sfx → (delay) → state-out
 events. Keep the two apart.
 
 **When a one-off is acceptable:** a single, instantaneous, uncoordinated sound with no
-visual or state component — e.g. a UI button click (`sound.playUI('uiClick')`). Even then,
+visual or state component, e.g. a UI button click (`sound.playUI('uiClick')`). Even then,
 if it ever grows a second element, promote it to a sequence. Per-frame continuous audio
-(an engine hum that tracks position every frame) is **not** a sequence — use
+(an engine hum that tracks position every frame) is **not** a sequence; use
 `EntityLoopManager` (§6).
 
 ---
 
 ## 5. Signals & state-transition callbacks
 
-Sequences talk to game state through **signal steps**, which the engine forwards — without
-interpreting — to the `onSignal` callback you pass to `FXSequenceRunner`:
+Sequences talk to game state through **signal steps**, which the engine forwards (without
+interpreting) to the `onSignal` callback you pass to `FXSequenceRunner`:
 
 ```
 FXSequenceRunner(sound, effects, onSignal)
@@ -276,7 +276,7 @@ FXSequenceRunner(sound, effects, onSignal)
 **How the target entity rides along:** when you call
 `sequences.play('critterPet', { entity: critter, x, y })`, the runner passes that whole
 `opts` object (including `entity`) to every `onSignal` call. So your handler stays
-generic — it mutates "the entity," whatever it is:
+generic: it mutates "the entity," whatever it is:
 
 ```js
 function onSignal(name, data, opts) {
@@ -299,9 +299,9 @@ emit it from a sequence. The engine needs zero changes. Good signal design:
 
 - Keep signals **imperative and small**: `setState`, `clearState`, `removeEntity`,
   `spawnChild`, `applyDamage`. One verb, optional `data` payload.
-- Mutate only the passed `entity` (or scene state reachable via a closure) — never reach
+- Mutate only the passed `entity` (or scene state reachable via a closure); never reach
   into the engine.
-- Signals should be **idempotent-ish / safe to fire mid-flight** — a delayed `clearState`
+- Signals should be **idempotent-ish / safe to fire mid-flight**: a delayed `clearState`
   may land after the entity changed; guard like the `linked` check above.
 
 ---
@@ -310,7 +310,7 @@ emit it from a sequence. The engine needs zero changes. Good signal design:
 
 Concise, verified signatures. See `ENGINE.md` for the full surface.
 
-### Art — `drawUnifiedArt` + `buildArtRegistry`
+### Art: `drawUnifiedArt` + `buildArtRegistry`
 
 ```js
 const art = buildArtRegistry({ critters: critterArtJson, props: propArtJson });
@@ -334,32 +334,32 @@ drawUnifiedArt(ctx, r, color, art.critters.blob, state, now /*, transition?, dur
   one lost capability is per-copy `phase` staggering inside `repeat`/`forEach`/`radialRepeat`.)
   This data is authored via the part-centric, auto-key timeline (see §Editor suite). The **beetle**
   (`data/critter-art.json`, states idle/happy/scared/linked) is the reference showcase that exercises
-  every keyframeable channel — position (incl. coord-object `r` terms), both radius modes, rotation,
+  every keyframeable channel: position (incl. coord-object `r` terms), both radius modes, rotation,
   `setup.alpha/shadowBlur/lineWidth/fill|strokeColor`, rect `width/height/x/y` (a ground-shadow
   `roundedRect`), all 10 eases, an ambient loop + play-once state clips + a looping `linked` clip, and
   two `visibleStates`-gated one-shot effectRefs (`poof` on happy, `jolt` on scared). Its happy sparkle
-  aura is drawn by the **game** (`GardenRenderer.drawAuras`), not embedded — see the effectRef scale
+  aura is drawn by the **game** (`GardenRenderer.drawAuras`), not embedded; see the effectRef scale
   caveat below.
 - **`effectRef`** embeds a VFX effect by id: `{ type:"effectRef", effect, cx, cy, scale?,
-  progress? }` — the third VFX category (asset-embedded, vs sequence- or code-triggered).
+  progress? }`, the third VFX category (asset-embedded, vs sequence- or code-triggered).
   Playback is **decoupled from the keyframe timeline by default**: with no `progress`, a
   **persistent** effect runs on its own clock (independent speed/looping) and a one-shot draws
   frozen. A keyframed **`progress` (0..1) track** is the explicit opt-in that drives the effect's
-  lifecycle from the clip timeline — ramp 0→1 to *fire* a burst in sync with the animation (the
+  lifecycle from the clip timeline: ramp 0→1 to *fire* a burst in sync with the animation (the
   editor's effectRef "▶ Fire over <clip>" button writes it; gate with `visibleStates`). `cx/cy/
   scale` are keyframeable to move/grow it in either mode. **Scale contract (gotcha):** the embedded
   effect draws at `scale = shape.scale * dc.r`, which assumes the effect's layer radii are NORMALIZED
   fractions (~0–1, like `poof`'s `defaultScale:26` which divides them out). An absolute-pixel persistent
   effect (e.g. `sparkleAura`: `defaultScale:1`, dashedRing `base:26`) blows up ~26× when embedded → a
   giant strobing ring; draw those from game code with a `radius/base` scale instead. The interpreter
-  stays data-agnostic: the host injects the lookup via `setEffectResolver(id => VFX_DEFS[id])` — wired in
+  stays data-agnostic: the host injects the lookup via `setEffectResolver(id => VFX_DEFS[id])`, wired in
   `game/main.js`, `game/shots.js`, and the art-editor preview. The legacy art `particles` shape still
   renders but is deprecated (author particle clouds in the VFX tab and embed via `effectRef`).
 - Always draw under the camera transform (see Critter Garden's `GardenRenderer._drawArtAt`):
   `translate(screen); scale(zoom); drawUnifiedArt(ctx, r, ...)` so absolute radii, line
   widths, and glow scale with zoom too.
 
-### VFX — `VFXInterpreter` via `EffectsManager` + `EffectsRenderer`
+### VFX: `VFXInterpreter` via `EffectsManager` + `EffectsRenderer`
 
 You rarely call the interpreter directly. The flow is:
 
@@ -380,15 +380,15 @@ effectsRenderer.drawEffectAt(VFX_DEFS.aura, x, y, null, scale, now); // per-enti
 
 - VFX types: `phased` (one-shot or persistent), `bubbleTrail`, `taperedTrail`, `wiggleBeam`.
 - Two-variant entity colors use **`{ local, remote }`** / `colorLocal`+`colorRemote` /
-  `colorInner`+`colorOuter` (+`colorRemote*`). **Single-player: omit `isLocal` — it
+  `colorInner`+`colorOuter` (+`colorRemote*`). **Single-player: omit `isLocal`; it
   defaults to the local variant.** Only the optional multiplayer module needs `remote`.
-- Persistent effects added via `addGenericEffect` **leak unless removed** — pass `{ id }`
+- Persistent effects added via `addGenericEffect` **leak unless removed**: pass `{ id }`
   and call `removeGenericEffect(id)`, or render per-frame via `drawEffectAt` (which doesn't
   enter the manager). The garden uses `drawEffectAt` for live auras.
-- `beam`/`trail` entity seeds must be **numeric** — `drawBeam` coerces `entityId`, but
+- `beam`/`trail` entity seeds must be **numeric**: `drawBeam` coerces `entityId`, but
   don't rely on a string carrying meaning into the math.
 
-### Sequences — `FXSequenceRunner`
+### Sequences: `FXSequenceRunner`
 
 ```js
 sequences.play(id, { x, y, angle, entity, volume, scale, blastRadius });
@@ -410,7 +410,7 @@ Step schema (in `data/fx-sequences.json`):
 places `vfx` at `(x,y)`. `opts.angle` rotates `vfx` offsets to follow body orientation.
 `opts.entity` rides to every `signal`. Unknown step types / missing defs warn once.
 
-### Sound — `SoundManager` + `EntityLoopManager`
+### Sound: `SoundManager` + `EntityLoopManager`
 
 ```js
 sound.playPositional(id, x, y, { volume });   // one-shot, world-positioned
@@ -430,7 +430,7 @@ Key behaviors to respect:
   `startLoop` warns. Match the method to the intent, but the data decides.
 - **Positional loops lazy-start:** `startLoop` returns `null` if the emitter is currently
   out of range, and there's a voice cap that culls the least-audible loop. This is why
-  `EntityLoopManager` re-calls `startLoop` each frame — that's the retry that makes lazy-
+  `EntityLoopManager` re-calls `startLoop` each frame: that's the retry that makes lazy-
   start work. Don't assume `startLoop` always returns a handle.
 - `range: 0` in the data = UI/non-positional; `range > 0` = positional (distance gain +
   low-pass + pan).
@@ -446,11 +446,11 @@ loopMgr.cleanupStale({ fadeOut: 0.2 });   // stops loops for entities gone this 
 
 **Synth voices** (sfx.json `synth`) go beyond oscillators+envelope+LFO+reverb: a `noise` layer
 type, `vibrato:{freq,depth}` (pitch LFO), `filter:{type,freq,q}` (biquad tone), `distortion:0..1`
-(waveshaper), and `midi:{file,track,tempo,transpose}` — render a `.mid` score through the voice.
+(waveshaper), and `midi:{file,track,tempo,transpose}` (render a `.mid` score through the voice).
 Author/tune all of these in the **soundboard** editor; every synth scalar accepts `[min,max]` for
-per-trigger randomization — toggle a field to `[R]` range mode in the editor to author it.
+per-trigger randomization; toggle a field to `[R]` range mode in the editor to author it.
 
-### Adaptive music — `MusicDirector` (`engine/audio/MusicDirector.js`)
+### Adaptive music: `MusicDirector` (`engine/audio/MusicDirector.js`)
 
 Vertical-remixing background music from `data/music.json`: several synchronized looping stems that
 crossfade by **intensity** with no restart. A scene drives mood; the engine fades layers.
@@ -458,33 +458,33 @@ crossfade by **intensity** with no restart. A scene drives mood; the engine fade
 ```js
 const music = new MusicDirector(sound);           // add to `shared`
 music.startSong('songId', { intensity: 'calm' });  // all stems share one downbeat; fade to the tier
-music.setIntensity('triumph');                     // crossfade — tiers map stem → absolute gain 0..1
+music.setIntensity('triumph');                     // crossfade; tiers map stem → absolute gain 0..1
 music.stop();                                      // in scene exit()
 ```
 
-Each stem pairs a `sound` (its instrument timbre — a `loop:true` synth sound, edited in the Sounds
+Each stem pairs a `sound` (its instrument timbre: a `loop:true` synth sound, edited in the Sounds
 sub-tab) with a **note pattern**. The pattern is editable JSON authored against a song tempo grid
 (`song.bpm`/`bars`/`beatsPerBar`/`grid`): `stem.notes:[{beat,len,midi,vel}]`. The whole song shares ONE
-loop length (`bars × beatsPerBar`); a stem shorter than that either plays once then waits, or — with
-`stem.repeat:true` — tiles to fill the loop, repeating on a whole-bar period (`tileBeatsToLoop` in
+loop length (`bars × beatsPerBar`); a stem shorter than that either plays once then waits, or (with
+`stem.repeat:true`) tiles to fill the loop, repeating on a whole-bar period (`tileBeatsToLoop` in
 `engine/audio/midi.js`, applied in `MusicDirector._stemNotes`). The engine plays it via the inline-notes
-loop path — `startSong` hands each stem `{notes (beats→seconds), loopLen}` so every stem loops to the same
+loop path: `startSong` hands each stem `{notes (beats→seconds), loopLen}` so every stem loops to the same
 bar grid in lock-step. A stem with **no** `notes` falls back to its sound's `synth.midi.{file,track}`
 (legacy `.mid`-driven path; gate that on `sound.loadMidi(path)`). Live note editing uses
-`music.updateStemNotes(name, beatsNotes, song)` (swaps the loop's notes with no restart — stays in sync),
+`music.updateStemNotes(name, beatsNotes, song)` (swaps the loop's notes with no restart; stays in sync),
 `music.swapStemSound(name, soundId, song)` (swap a stem's instrument in phase, no song restart),
 `music.seekTo(phase)` (move the playhead, no restart), and `music.getPhase()` (0..1, for an editor
 playhead). Assemble + edit songs in the
 **Music** sub-tab (under **Soundboard**): a mixing console (add/remove/reorder/rename/**clone** stems with
 mute/solo/**repeat** per strip; clone/rename/delete songs and vibe scenes; mix headroom/crossfade,
-per-vibe faders) **plus a piano-roll editor below the mixer** — click a stem, draw/move/resize/delete notes
+per-vibe faders) **plus a piano-roll editor below the mixer**: click a stem, draw/move/resize/delete notes
 on a pitch×time grid live as the song plays, transpose/quantize, and **Import…** notes by pasting or
 uploading **ABC notation or MIDI** (or drag-drop a `.mid`/`.abc` file onto the editor); an import longer
 than the song auto-extends `bars`. The example `data/music.json` (`critterGarden`) shows it off: short
 phrases authored once with `repeat:true` (kick/shaker 1-bar, bass/pad/lead 4-bar) under a full 8-bar flute
 melody. The example wires `GardenScene` (population → `calm`/`lively`/`playful`, a pairing punches `triumph`).
 
-### Camera — `engine/core/Camera.js`
+### Camera: `engine/core/Camera.js`
 
 ```js
 const cam = new Camera(canvas, { minZoom: 0.4, maxZoom: 3 });
@@ -495,10 +495,10 @@ cam.setZoom(z) / getZoom() / zoomAt(factor, screenX, screenY);  // zoomAt anchor
 ```
 
 In `onWheel(deltaY, x, y)` do `cam.zoomAt(deltaY < 0 ? STEP : 1/STEP, x, y)`. Art, effects,
-debris, trails, beams, and the background all scale with zoom — keep new renderers
+debris, trails, beams, and the background all scale with zoom; keep new renderers
 consistent (draw under the camera transform or multiply sizes by `getZoom()`).
 
-### Physics — `engine/physics/`
+### Physics: `engine/physics/`
 
 ```js
 applyShipPhysics(body, input, dt, stats, bounds);
@@ -511,47 +511,67 @@ getCircleOverlap(ax, ay, ar, bx, by, br) → { overlap, nx, ny, dist } | null;
 ```
 
 Drag is **frame-rate independent** (referenced to 60 Hz). Pass `dt` in seconds, clamped
-(the scene caps it at ~0.05 to survive tab-switch stalls — do the same).
+(the scene caps it at ~0.05 to survive tab-switch stalls; do the same).
 
-### Background — `BackgroundRenderer`
+### Background: `BackgroundRenderer`
 
-`new BackgroundRenderer(camera, canvas, layers)` — `layers` is a config array (see
+`new BackgroundRenderer(camera, canvas, layers)`: `layers` is a config array (see
 `game/config.js` `BACKGROUND_LAYERS` for the shape: parallax, tileSize, count, size,
 opacity, drift, pulse, color). Neutral default if omitted. Zoom-aware.
 
-### Performance helpers — `SpriteCache` + `TextCache`
+### Performance helpers: `SpriteCache` + `TextCache`
 
 Two optional, game-agnostic memoizers for hot render paths:
 
-- **`SpriteCache`** (`engine/render/SpriteCache.js`) — rasterize expensive, frame-stable drawing
+- **`SpriteCache`** (`engine/render/SpriteCache.js`): rasterize expensive, frame-stable drawing
   (layered vector art, blur halos) once to an offscreen tile and blit it. `cache.get(key, w, h, draw)`
-  returns a cached canvas (or `null` in Node — fall back to direct draw). **You own the key**: encode
+  returns a cached canvas (or `null` in Node; fall back to direct draw). **You own the key**: encode
   what changes the pixels (id/state/size), exclude per-frame transforms (position/rotation/bob) and
   apply those at blit time. DPR is handled for you.
-- **`TextCache`** (`engine/ui/TextCache.js`) — `fitParagraph`/`drawParagraph`/`wrapLines`: word-wrap +
+- **`TextCache`** (`engine/ui/TextCache.js`): `fitParagraph`/`drawParagraph`/`wrapLines`, i.e. word-wrap +
   shrink-to-fit with a memoized fit (avoids ~9–14 `measureText` passes per paragraph per frame). Pass
   the `family`/`weight`; no game styling baked in.
 
-These live in the engine but stay ignorant of game content — the game decides what to cache and how to
+These live in the engine but stay ignorant of game content: the game decides what to cache and how to
 key it. Reach for them when profiling shows per-frame re-rasterization or text measuring is hot.
 
-### Multiplayer rooms — `RoomServer` (optional)
+### Networking: `engine/net/` (optional)
 
-For room/lobby games, `engine/net/RoomServer.js` is a generic WebSocket room host (short-code rooms,
-reconnect tokens, host role, TTL teardown, heartbeat). Inject game logic via `createRoomLogic(ctx)`;
-`member.data` is an opaque bag the server never reads. It's part of the **optional** net module
-(unwired by the single-player example) — see `engine/net/README.md` for the wiring sketch.
+An optional client-server scaffold, **unwired by the single-player example** (the core
+`Game` loop has zero dependency on it; the `ws` dep is only used when you add a server
+WebSocket). Two shapes; pick one per project:
 
-### Shot harness — render predefined game states to images (`/shots`)
+- **Authoritative real-time** (one world, fixed tick, interpolated snapshots):
+  `ServerLoop` (Node fixed-timestep loop over a systems registry + broadcast hook) +
+  `StateBuffer` (browser interpolation buffer; configure `fields` per entity shape:
+  `lerp`/`lerpAngle`/`copy`) + `NetworkClient` (WebSocket client with `on(type, handler)`
+  dispatch and reconnect backoff). Server ticks systems and broadcasts state; client
+  pushes snapshots into the buffer and renders `buffer.getInterpolated(now)`.
+- **Room/lobby (party) games**: `RoomServer`, a generic WebSocket room host (short-code
+  rooms, reconnect tokens, host role, TTL teardown, heartbeat; covered by
+  `tests/roomServer.test.js`). Inject game logic via `createRoomLogic(ctx)`; the room's
+  hooks (`canJoin`/`onJoin`/`onReconnect`/`onLeave`/`onMessage`/`onEnd`) get a `ctx` with
+  `broadcast`/`sendTo`/`members`/`scheduleTransition`/`rng`/`end`. `member.data` is an
+  opaque bag the server never reads.
+
+Wiring rules (same layering as everywhere else): message types are defined **in the
+game** (`defineMessageTypes` from `engine/net/protocol.js`, e.g. in a shared
+`game/protocol.js` imported by both sides); the server side is added to `server/main.js`
+per-project; `engine/net/` stays game-agnostic: game state, intents, and room logic are
+always injected, never imported. Full wiring sketches for both shapes:
+`engine/net/README.md`. Treat the module as a head-start template, not a battle-tested
+component; wire it into a real project and test it there.
+
+### Shot harness: render predefined game states to images (`/shots`)
 
 Built for agentic dev: declare named game states in `data/shots.json`, then view them as images to
 judge and iterate (edit art/scene code → reload `/shots` → look → repeat). The engine ships the runner;
 the game owns the states and how to draw them.
 
-- **You author** `data/shots.json` — `{ "render": "/game/shots.js", "shots": [{ id, scene, viewport,
+- **You author** `data/shots.json`: `{ "render": "/game/shots.js", "shots": [{ id, scene, viewport,
   now?, seed?, camera?, state }] }`. `state` is **opaque game state**; the engine never reads it.
 - **You implement** `renderShot(ctx, shot, env)` in `game/shots.js`. The contract (this is the part
-  that bites): hydrate `shot.state` directly and **skip the scene's `enter()`** — `enter()` does audio
+  that bites): hydrate `shot.state` directly and **skip the scene's `enter()`**; `enter()` does audio
   / network / `Math.random` spawns that don't belong in a static frame. Build a headless `shared`
   (no audio/`Game`), assign the scene's fields from `state`, then call the scene's **real `render()`**
   so a shot can never drift from how the game actually draws. The example (`game/shots.js`) builds
@@ -559,19 +579,19 @@ the game owns the states and how to draw them.
   `state.warmupFrames` seeded frames for trails, and renders.
 - **Engine side** (`engine/harness/`, all game-agnostic): `runShots({ shots, renderShot, makeCanvas,
   emit })` sizes a DPR-scaled canvas, seeds `Math.random`, and calls your `renderShot` (passed as a
-  parameter — the engine never imports `game/`; the page reaches your module via the data-declared
+  parameter: the engine never imports `game/`; the page reaches your module via the data-declared
   `render` path). `composeContactSheet` makes the grid; `seededRandom`/`withSeed` keep frames stable.
 - **Browser is the image backend** (real glow/blur/fonts/DPR). `tests/shots.test.js` is a Node smoke
   test only (every shot renders + emits draws), not a pixel path. View at `/shots` (contact sheet) or
   `/shots?shot=<id>&scale=N`; drive headlessly with any browser tool and screenshot. **Use this to
-  *see* your art/scene changes** — it's the fastest visual feedback loop in the engine.
+  *see* your art/scene changes**: it's the fastest visual feedback loop in the engine.
 
 ---
 
 ## 7. Data authoring & the editor pipeline
 
 All content lives in `data/*.json` and is editable in the browser editor at `/editor`
-(four tabs: **Art**, **VFX**, **Sequences**, **Soundboard** — the last with **Sounds** + **Music**
+(four tabs: **Art**, **VFX**, **Sequences**, **Soundboard**, the last with **Sounds** + **Music**
 sub-tabs). The visual editors are retargeted purely by `data/editor-manifest.json`; the audio editors
 treat `sfx.json`/`music.json` as the opaque source of truth (no editor code changes per project).
 
@@ -588,7 +608,7 @@ The **keyframe timeline is a dope sheet with one row per *part* (shape), not per
 marks any time that part has ≥1 keyed property (a "pose"); drag it to retime the whole pose, right-click
 to delete it, double-click a row to key the pose there, and expand `▸` for the per-property channel
 sub-rows (fine control). Only animated parts (plus the selected one) get rows. Authoring is **auto-key**
-(default ON, togglable): with a part selected, scrub the playhead and tweak the part in the props panel —
+(default ON, togglable): with a part selected, scrub the playhead and tweak the part in the props panel;
 each change writes a keyframe at that time. The props widgets are **time-aware** (they show the *sampled*
 value at the playhead), so an edit means "make it look like this here." This is done by a transparent
 **anim proxy** (`createAnimProxy` in `art/ctx.js`) that composes *outside* the state-override proxy:
@@ -599,26 +619,26 @@ channels"** disclosure (per-property key/loop/clear + a guided "looping motion" 
 and fine control. Transport is forked from the MIDI editor (`Space` play/pause, ruler scrub,
 `Ctrl`/`Shift`+wheel zoom/pan, Loop-vs-Once clips). Pure part/pose ops (`listPartRows`, `poseTimes`,
 `movePose`, `deletePose`, `keyPose`, coercion helpers) live in `editors/art/model/keyframes.js`. The props panel
-reflects the animation **live** — while scrubbing (`refreshPropsForScrub`) and while playing
-(`syncPlaybackProps` in the render loop, throttled/focus-guarded) — so values animate with the preview
+reflects the animation **live**, while scrubbing (`refreshPropsForScrub`) and while playing
+(`syncPlaybackProps` in the render loop, throttled/focus-guarded), so values animate with the preview
 instead of freezing until pause. Point/vertex number fields are time-aware too (`livePointRow` shows the
 sampled value via `editValueAt` and writes via `commitShapeEdit`).
 
 **On-canvas drags edit the same way the panel does.** Move / vertex / radius / rotate drags (and arrow-key
-nudge) route through **`commitShapeEdit(rawShape, propPath, value)`** (art/ctx.js) — the single edit
+nudge) route through **`commitShapeEdit(rawShape, propPath, value)`** (art/ctx.js), the single edit
 router that both the panel and the canvas use: KEYFRAME into the key-target clip at the playhead (seeding a
 t=0 rest key) when a track exists OR auto-key is on and playhead>0 (never while playing) → else STATE
 OVERRIDE (`states[state]`) → else BASE. `propPath` may be dotted (`points.2`, `segments.0.1`,
 `curves.1.cp`), so dragging one **vertex** keyframes just that vertex (the runtime applies dotted paths
 deeply). Drags read the on-screen value via `editValueAt` (sampled if keyed, else the effective rest) so a
-grab starts where the shape is. Don't reintroduce direct base mutation in the drag handlers — route through
+grab starts where the shape is. Don't reintroduce direct base mutation in the drag handlers; route through
 `commitShapeEdit` so state/keyframe context is always honored.
 
-**Preview render loop (architecture — don't regress):** the art-editor preview runs an **always-on
+**Preview render loop (architecture; don't regress):** the art-editor preview runs an **always-on
 render loop** (`startRenderLoop`/`stopRenderLoop`, art/preview/preview.js; started in `mount`, stopped in
 `unmount`) that calls `renderPreview()` **every frame while mounted**. Play/pause toggles ONLY
 `ctx.animPlaying` = whether animation *time* advances (`timeline.advance`); painting is unconditional. So
-the preview is always a live reflection of state — zoom, pan, undo/redo, edits, selection — with **no
+the preview is always a live reflection of state (zoom, pan, undo/redo, edits, selection) with **no
 mutation site needing to trigger a repaint**. Do NOT gate rendering on `animPlaying` or sprinkle one-shot
 `renderPreview()` after mutations: that push-based, hand-maintained-trigger model is exactly what caused a
 long tail of "preview is stale until I move/play" bugs (each was a missing trigger). The loop is the
@@ -637,7 +657,7 @@ single source of truth for what's on screen.
 `scatterStrips` ported from the old art emitters); trails/beams have type-specific fields.
 Value forms: static, `{from,to}`, `{from,to,modulate:{freq,amp}}`, `{base,amplitude,freq}`
 (persistent), `{local,remote}` (two-variant color). Author particle clouds here (as a
-`scatter*` layer in a `persistent` effect) and embed them in art via an `effectRef` shape —
+`scatter*` layer in a `persistent` effect) and embed them in art via an `effectRef` shape;
 the art `particles` shape type is deprecated.
 
 **SFX** (`{ categories:[...], sounds:{ id: cfg } }`): each `cfg` is
@@ -648,7 +668,7 @@ the art `particles` shape type is deprecated.
 lfo?:{freq,depth}, reverb?:0..1 }`. `range:0` ⇒ UI; `range>0` ⇒ positional. `loop` is
 authoritative (§6).
 
-**Sequences** — see §6 step table.
+**Sequences**: see §6 step table.
 
 **Manifest** (`data/editor-manifest.json`):
 
@@ -660,7 +680,7 @@ authoritative (§6).
 }
 ```
 
-Runtime art loading does **not** use the manifest — the game statically imports its art
+Runtime art loading does **not** use the manifest: the game statically imports its art
 JSON and calls `buildArtRegistry`. The manifest exists purely to point the **editors** at
 this project's files/entities/categories.
 
@@ -673,20 +693,20 @@ Add a new art collection → add it to the manifest → it becomes saveable auto
 
 ---
 
-## 8. Building a new game — recipe
+## 8. Building a new game: recipe
 
 1. **Copy the whole repo.** `engine/`, `editors/`, `server/` are reused as-is.
 2. **Replace `data/*.json`** with your content (or author it in `/editor`). Point
    `data/editor-manifest.json` at your art collections, preview entities, and vfx
    categories.
-3. **Write `game/config.js`** — your world size, palette, background layers, entity stats,
+3. **Write `game/config.js`**: your world size, palette, background layers, entity stats,
    and tunables. All game numbers live here, nowhere in `engine/`.
-4. **Write your entities** (`game/*.js`) — plain classes holding state; use
+4. **Write your entities** (`game/*.js`): plain classes holding state; use
    `applyShipPhysics`/collision if you want movement, or your own.
 5. **Write your scenes** (`game/scenes/*.js`) extending `Scene`. Own state in the scene;
    pull services from `shared`. Convert mouse coords with `camera.screenToWorld`.
 6. **Author reactions as sequences** (§4), wire `onSignal` (§5) in `game/main.js`.
-7. **Write `game/main.js`** — construct services, `buildArtRegistry`, define `onSignal`,
+7. **Write `game/main.js`**: construct services, `buildArtRegistry`, define `onSignal`,
    build `shared`, create scenes, `game.start(firstScene)`.
 8. **Add tests** mirroring `tests/` (Node `--test` via the loader remap). Run `npm test`.
 9. **Verify** in the browser: game at `/`, editors at `/editor`. No console errors.
@@ -701,7 +721,7 @@ Add a new art collection → add it to the manifest → it becomes saveable auto
   game code; do use them within a folder (`./GardenRenderer.js`).
 - **Immutability:** raw JSON imports are frozen. Always go through `buildArtRegistry` /
   `engine/data/*` loaders (they deep-clone). Mutating a frozen import throws.
-- **Scene lifecycle / no leaks:** in `exit()` stop everything you started —
+- **Scene lifecycle / no leaks:** in `exit()` stop everything you started:
   `sequences.stopAll()`, `loopMgr.stopAll()`, `effects.stopAll()`. In `enter()` reset
   transient input state (e.g. held-keys set). The garden scene is the reference.
 - **`update` vs `render`:** never mutate state in `render`; never draw in `update`. The
@@ -709,14 +729,15 @@ Add a new art collection → add it to the manifest → it becomes saveable auto
 - **dt:** compute `dt` from `now`, clamp to ~`0.05` so a tab-switch can't teleport
   physics/particles.
 - **Dev warnings:** unknown art shape types, VFX primitives/types, sequence step types, and
-  sound ids each `console.warn` once. A silent missing effect usually means a typo'd id —
+  sound ids each `console.warn` once. A silent missing effect usually means a typo'd id;
   check the console.
 - **Server config:** binds `127.0.0.1` by default (`HOST=0.0.0.0` to expose), `PORT` env
   (default 6970), optional `EDITOR_PASSWORD` to gate the editor + save API. The request
   handler is fully guarded (malformed URLs / null bytes return 4xx, never crash).
 - **Optional `engine/net/`:** a stubbed, unwired multiplayer module (NetworkClient,
-  ServerLoop, StateBuffer, protocol). The single-player core has zero dependency on it; the
-  `ws` dep is only for net. Wire it per-project; it's a head-start, not battle-tested.
+  ServerLoop, StateBuffer, RoomServer, protocol; see §6 Networking). The single-player
+  core has zero dependency on it; the `ws` dep is only for net. Wire it per-project; it's
+  a head-start, not battle-tested.
 
 ---
 

@@ -4,10 +4,12 @@ A no-build, vanilla-JS, browser-native 2D engine (data-driven art / VFX / sequen
 sound + editors). Ships with the **Critter Garden** example game. No bundler, no
 framework; the browser loads ES modules by absolute path and JSON via import attributes.
 
-**📖 Read `AGENTS.md` before writing code here — it is the full guide for building on this
+**📖 Read `AGENTS.md` before writing code here; it is the full guide for building on this
 engine** (layering, leak-prevention rules, the sequence-first orchestration pattern, signal
 callbacks, every subsystem API, and authoring shapes). `ENGINE.md` is the terse API
-cheat-sheet; `README.md` covers run/config.
+cheat-sheet; `README.md` covers run/config; `docs/EDITORS.md` is the user-facing editor
+guide (its screenshots live in `docs/screenshots/`; re-capture via `/shots` + `/editor`
+if the UI changes materially).
 
 ## Non-negotiable rules (full detail in AGENTS.md)
 
@@ -16,11 +18,11 @@ cheat-sheet; `README.md` covers run/config.
    it still make sense, unchanged, in a totally different game?* If no, it belongs in
    `game/` or `data/`.
 2. **Layering & dependency direction:** `game/ → engine/` ✅, `game/ → data/` ✅,
-   `engine/data/*.js → data/*.json` ✅ (the only engine→data binding — treats data as
+   `engine/data/*.js → data/*.json` ✅ (the only engine→data binding; treats data as
    opaque). `engine/ → game/` ❌, hardcoded ids in `engine/` ❌, `editors/` not driven by
    `data/editor-manifest.json` ❌.
 3. **Extend interpreters with data, not gameplay branches.** Need something new? Add a
-   *generic* primitive any game could use — never a game-specific `case`.
+   *generic* primitive any game could use, never a game-specific `case`.
 4. **Fire a sequence, don't one-off.** A reaction (sound + VFX + state change, often over
    time) is authored once in `data/fx-sequences.json` and triggered with
    `sequences.play(id, { x, y, entity })`. Don't scatter `sound.play` + `addGenericEffect`

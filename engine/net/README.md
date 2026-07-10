@@ -1,8 +1,8 @@
-# engine/net — optional multiplayer module
+# engine/net: optional multiplayer module
 
 A generalized, **optional** client-server scaffold extracted and decoupled from Sub Game's
 authoritative-multiplayer netcode. It is **not used by the Critter Garden example**, so treat it as a
-head-start template, not a tested component — wire it into a real project and test it there.
+head-start template, not a tested component: wire it into a real project and test it there.
 
 ## Pieces
 
@@ -12,7 +12,7 @@ head-start template, not a tested component — wire it into a real project and 
 | `NetworkClient.js` | browser | WebSocket client with `on(type, handler)` dispatch + reconnect (exponential backoff + jitter) |
 | `ServerLoop.js` | Node | fixed-timestep loop over a systems registry + a broadcast hook |
 | `StateBuffer.js` | browser | interpolation buffer driven by a per-entity field config |
-| `RoomServer.js` | Node | room/lobby host: short-code rooms, reconnect tokens, host role, TTL teardown, heartbeat — game logic injected (**covered by `tests/roomServer.test.js`**) |
+| `RoomServer.js` | Node | room/lobby host: short-code rooms, reconnect tokens, host role, TTL teardown, heartbeat; game logic injected (**covered by `tests/roomServer.test.js`**) |
 
 `ServerLoop` + `StateBuffer` suit **authoritative real-time** games (one world, fixed tick,
 interpolated snapshots). `RoomServer` suits **room-based / party** games (many independent rooms
@@ -26,7 +26,7 @@ import { defineMessageTypes } from '/engine/net/protocol.js';
 export const M = defineMessageTypes('JOIN', 'INPUT', 'STATE', 'WELCOME');
 ```
 
-**Server** (Node — add `ws` and a `WebSocketServer` to `server/main.js`):
+**Server** (Node; add `ws` and a `WebSocketServer` to `server/main.js`):
 ```js
 import { ServerLoop } from '../engine/net/ServerLoop.js';
 import { serialize, deserialize } from '../engine/net/protocol.js';
@@ -60,9 +60,9 @@ net.send({ type: 'INPUT', seq, input });
 
 For party/room games, skip `ServerLoop` and let `RoomServer` own the connection lifecycle.
 You supply a `createRoomLogic(ctx)` factory called once per room; it returns the per-room
-hooks. `RoomServer` never reads `member.data` — that opaque bag is yours.
+hooks. `RoomServer` never reads `member.data`; that opaque bag is yours.
 
-**Server** (Node — add `ws` and a `WebSocketServer` to `server/main.js`):
+**Server** (Node; add `ws` and a `WebSocketServer` to `server/main.js`):
 ```js
 import { WebSocketServer } from 'ws';
 import { RoomServer } from '../engine/net/RoomServer.js';

@@ -42,6 +42,7 @@ const MOUNTS = {
 // Routes that require editor auth when EDITOR_PASSWORD is set.
 function isEditorRoute(method, pathname) {
   return (method === 'POST' && pathname === '/api/save-data')
+    || (method === 'POST' && pathname === '/api/manage-collection')
     || (method === 'GET' && pathname === '/api/sfx-files')
     || (method === 'GET' && pathname === '/api/midi-files')
     || pathname === '/editor'

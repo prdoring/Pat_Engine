@@ -1,7 +1,9 @@
 {
   "name": "pat-engine",
   "version": "0.1.0",
-  "description": "A reusable, data-driven 2D game engine (vector art, VFX, sequences, sound, editors) extracted from Sub Game. Ships with the Critter Garden example game.",
+  "description": "A reusable, data-driven 2D game engine (vector art, VFX, sequences, sound, editors). No build step — runs directly in the browser. Ships with the Critter Garden example game.",
+  "license": "MIT",
+  "author": "Patrick <prdoring@gmail.com>",
   "type": "module",
   "scripts": {
     "start": "node server/main.js",
