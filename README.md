@@ -111,6 +111,26 @@ Things in the repo that assume an agent may be doing some of the work:
 
 ![Shot harness contact sheet](docs/screenshots/shots-contact-sheet.png)
 
+## Built with Pat_Engine
+
+Two of my games share this engine: it was extracted from the first and powers the
+second. Click through to play them.
+
+<table>
+<tr>
+<th align="left"><a href="https://patssubgame.com/">Sub Game</a></th>
+<th align="left"><a href="https://marklikey.patssubgame.com/">Mark Likey</a></th>
+</tr>
+<tr>
+<td width="50%">A multiplayer PVPVE extraction game: outfit a modular submarine, dive for salvage among NPC drones and rival crews, and get out before the surge. Crew mechanics let friends run one boat together.</td>
+<td width="50%">A fantasy-themed Jackbox-style party game about knowing how well you can read your friends' likes: build a courtier, then guess how much the Marky adores each answer.</td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/example-subgame.png" alt="Sub Game: the submarine loadout screen"></td>
+<td><img src="docs/screenshots/example-marklikey.png" alt="Mark Likey: the Reckoning, where guesses meet the Marky's true rating"></td>
+</tr>
+</table>
+
 ## What's in the box
 
 - **Vector art:** Canvas2D art interpreter + editor (shapes, per-state overrides,
